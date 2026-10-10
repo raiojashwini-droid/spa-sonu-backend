@@ -1,0 +1,807 @@
+// OMEGA SPA POS — Prisma Schema
+// Phase 1: Foundation
+// Phase 2: Core Identity Layer (Role, User, StaffProfile)
+// Phase 3: Client Management Database (Client, ClientMedia, ClientHistory)
+// Phase 4: Services & Appointment Database Module (Service, Appointment, AppointmentService)
+// Phase 5: Architecture Simplification (AppointmentService as Single Authoritative Source of Truth)
+// Phase 6: Invoice + Payment + Receipt Database Module (Invoice, InvoiceItem, Payment)
+// Phase 7: Stock & Retail Product Database Module (ServiceStock, RetailProduct, StockActivity)
+// Phase 8: Employee Attendance Database Module (Attendance)
+// Phase 9: Expense Database Module (Expense)
+// Phase 10: Referral Commission & Loyalty Database Module (CommissionRule, EmployeeCommission, LoyaltySetting, ClientLoyalty, LoyaltyTransaction)
+// Phase 11: Customer Engagement Database Module (WhatsAppAutomation, SocialMediaAccount, ClientFeedback)
+// Phase 18: Technician Commission & Bonus System (TechnicianCommission, CommissionActivity)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  MANAGER
+  RECEPTION
+  TECHNICIAN
+  CLEANER
+}
+
+enum ClientSource {
+  DIRECT
+  STAFF_REFERRAL
+  CLIENT_REFERRAL
+}
+
+enum MediaType {
+  BEFORE
+  AFTER
+  ATTENDANCE_LOGIN
+  ATTENDANCE_LOGOUT
+  CLEANING_BEFORE
+  CLEANING_AFTER
+}
+
+enum ServiceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  LATE
+  NO_SHOW
+  CANCELLED
+}
+
+enum AppointmentServiceStatus {
+  BOOKED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PAID
+}
+
+enum InvoiceItemType {
+  SERVICE
+  RETAIL_PRODUCT
+}
+
+enum PaymentMethod {
+  CASH
+  MTN_MOMO
+  ORANGE_MONEY
+}
+
+enum RetailCategory {
+  DRINKS
+  COSMETICS
+}
+
+enum StockActivityType {
+  REFILL
+  ADJUSTMENT
+  CONSUMPTION
+  SERVICE_USAGE
+  DAMAGE
+}
+
+enum AttendanceStatus {
+  NOT_STARTED
+  WORKING
+  COMPLETED
+}
+
+enum ExpenseCategory {
+  ELECTRICITY
+  WATER
+  GENERATOR_FUEL
+  GENERATOR_FUEL_GAS
+  MAINTENANCE
+  REPAIRS
+  RENT
+  CLEANING_SUPPLIES
+  OTHER
+}
+
+enum CommissionType {
+  REFERRAL
+  SERVICE
+}
+
+enum CommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  ADJUSTED
+}
+
+enum CommissionActivityType {
+  GENERATED
+  BONUS_ADDED
+  ADJUSTED
+  APPROVED
+  PAID
+}
+
+enum LoyaltyTransactionType {
+  EARN
+  REDEEM
+  ADJUST
+}
+
+enum WhatsAppAutomationType {
+  BIRTHDAY
+  ANNIVERSARY
+  APPOINTMENT_REMINDER
+  APPOINTMENT_24H
+  APPOINTMENT_2H
+  AFTER_SERVICE
+  INVOICE_THANKYOU
+  PAYMENT_CONFIRMATION
+  REBOOKING
+  DAILY_SUMMARY
+  DAILY_CLOSE_BOSS
+}
+
+enum WhatsAppMessageStatus {
+  QUEUED
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
+enum SocialPlatform {
+  FACEBOOK
+  INSTAGRAM
+  TIKTOK
+}
+
+enum SocialPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+enum SocialMediaType {
+  PHOTO
+  VIDEO
+  TEXT
+  CAROUSEL
+}
+
+
+model Role {
+  id        String   @id @default(uuid())
+  name      RoleName @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+}
+
+model User {
+  id                            String               @id @default(uuid())
+  email                         String               @unique
+  phone                         String?              @unique
+  passwordHash                  String
+  roleId                        String
+  role                          Role                 @relation(fields: [roleId], references: [id])
+  isActive                      Boolean              @default(true)
+  createdAt                     DateTime             @default(now())
+  updatedAt                     DateTime             @updatedAt
+  staffProfile                  StaffProfile?
+  introducedClients             Client[]             @relation("IntroducedClients")
+  mainTechnicianAppointments    Appointment[]        @relation("MainTechnicianAppointments")
+  createdAppointments           Appointment[]        @relation("CreatedAppointments")
+  performingAppointmentServices AppointmentService[] @relation("PerformingTechnicianAppointmentServices")
+  performedInvoiceItems         InvoiceItem[]        @relation("InvoiceItemTechnician")
+  receivedPayments              Payment[]            @relation("ReceivedPayments")
+  createdStockActivities        StockActivity[]      @relation("StockActivityCreatedBy")
+  attendances                   Attendance[]         @relation("EmployeeAttendance")
+  createdAttendances            Attendance[]         @relation("AttendanceCreatedBy")
+  expenses                      Expense[]            @relation("ExpenseCreatedBy")
+  employeeCommissions           EmployeeCommission[] @relation("EmployeeCommissions")
+  technicianCommissions         TechnicianCommission[] @relation("TechnicianCommissions")
+  approvedCommissions           TechnicianCommission[] @relation("CommissionApprovedBy")
+  performedCommissionActivities CommissionActivity[]   @relation("CommissionActivityPerformedBy")
+  cleaningRecords               CleaningRecord[]       @relation("CleanerCleaningRecords")
+
+  @@index([roleId])
+}
+
+model StaffProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  phone       String?
+  specialties Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Client {
+  id                      String               @id @default(uuid())
+  name                    String
+  phone                   String               @unique
+  whatsapp                String?
+  quartier                String?
+  birthday                DateTime?            @db.Date
+  anniversary             DateTime?            @db.Date
+  source                  ClientSource         @default(DIRECT)
+  introducedByEmployeeId  String?
+  introducedByEmployee    User?                @relation("IntroducedClients", fields: [introducedByEmployeeId], references: [id], onDelete: SetNull)
+  referredByClientId      String?
+  referredByClient        Client?              @relation("ClientReferrals", fields: [referredByClientId], references: [id], onDelete: SetNull)
+  referrals               Client[]             @relation("ClientReferrals")
+  recommendedByName       String?
+  recommendedByPhone      String?
+  recommendedByDate       DateTime?            @db.Date
+  firstAppointmentService String?
+  noShowCount             Int                  @default(0)
+  lastVisitAt             DateTime?
+  lastServiceDate         DateTime?
+  isActive                Boolean              @default(true)
+  status                  String               @default("ACTIVE")
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  media                   ClientMedia[]
+  history                 ClientHistory[]
+  appointments            Appointment[]
+  invoices                Invoice[]
+  loyalty                 ClientLoyalty?
+  loyaltyTransactions     LoyaltyTransaction[]
+  feedbacks               ClientFeedback[]
+  whatsAppMessages        WhatsAppMessageLog[]
+
+  @@index([phone])
+  @@index([whatsapp])
+  @@index([introducedByEmployeeId])
+  @@index([referredByClientId])
+  @@index([status])
+  @@index([isActive])
+}
+
+
+model ClientMedia {
+  id         String    @id @default(uuid())
+  clientId   String
+  client     Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  mediaType  MediaType
+  fileUrl    String    @db.Text
+  publicId   String?
+  uploadedBy String?
+  note       String?
+  createdAt  DateTime  @default(now())
+
+  @@index([clientId])
+}
+
+model ClientHistory {
+  id          String   @id @default(uuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  action      String
+  details     String?  @db.Text
+  performedBy String?
+  createdAt   DateTime @default(now())
+
+  @@index([clientId])
+}
+
+model Service {
+  id                  String               @id @default(uuid())
+  name                String
+  category            String
+  description         String?              @db.Text
+  duration            Int
+  price               Decimal              @db.Decimal(10, 2)
+  status              ServiceStatus        @default(ACTIVE)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  appointmentServices AppointmentService[]
+  invoiceItems        InvoiceItem[]
+
+  @@index([category])
+  @@index([status])
+}
+
+model Appointment {
+  id                  String               @id @default(uuid())
+  clientId            String
+  client              Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  mainTechnicianId    String
+  mainTechnician      User                 @relation("MainTechnicianAppointments", fields: [mainTechnicianId], references: [id], onDelete: Restrict)
+  appointmentDate     DateTime             @db.Date
+  appointmentTime     String
+  status              AppointmentStatus    @default(SCHEDULED)
+  serviceSummary      String?
+  notes               String?              @db.Text
+  lateMinutes         Int?
+  noShowReason        String?              @db.Text
+  createdById         String?
+  createdBy           User?                @relation("CreatedAppointments", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  appointmentServices AppointmentService[]
+  invoice             Invoice?
+  feedbacks           ClientFeedback[]
+  whatsAppMessages    WhatsAppMessageLog[]
+
+  @@index([clientId])
+  @@index([mainTechnicianId])
+  @@index([appointmentDate])
+  @@index([status])
+  @@index([mainTechnicianId, appointmentDate])
+}
+
+model AppointmentService {
+  id            String                   @id @default(uuid())
+  appointmentId String
+  appointment   Appointment              @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  serviceId     String?
+  service       Service?                 @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  technicianId  String
+  technician    User                     @relation("PerformingTechnicianAppointmentServices", fields: [technicianId], references: [id], onDelete: Restrict)
+  price         Decimal                  @db.Decimal(10, 2)
+  status        AppointmentServiceStatus @default(BOOKED)
+  completedAt   DateTime?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  invoiceItem   InvoiceItem?
+
+  @@index([appointmentId])
+  @@index([serviceId])
+  @@index([technicianId])
+  @@index([status])
+}
+
+model Invoice {
+  id                    String                 @id @default(uuid())
+  appointmentId         String?                @unique
+  appointment           Appointment?           @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  clientId              String?
+  client                Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  invoiceNumber         String                 @unique
+  date                  DateTime               @db.Date
+  status                InvoiceStatus          @default(DRAFT)
+  subtotal              Decimal                @default(0) @db.Decimal(10, 2)
+  discount              Decimal                @default(0) @db.Decimal(10, 2)
+  total                 Decimal                @default(0) @db.Decimal(10, 2)
+  pointsEarned          Int                    @default(0)
+  pointsRedeemed        Int                    @default(0)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  items                 InvoiceItem[]
+  payments              Payment[]
+  employeeCommissions   EmployeeCommission[]
+  loyaltyTransactions   LoyaltyTransaction[]
+  technicianCommissions TechnicianCommission[]
+  whatsAppMessages      WhatsAppMessageLog[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([date])
+}
+
+model InvoiceItem {
+  id                   String              @id @default(uuid())
+  invoiceId            String
+  invoice              Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  appointmentServiceId String?             @unique
+  appointmentService   AppointmentService? @relation(fields: [appointmentServiceId], references: [id], onDelete: SetNull)
+  serviceId            String?
+  service              Service?            @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  retailProductId      String?
+  retailProduct        RetailProduct?      @relation(fields: [retailProductId], references: [id], onDelete: Restrict)
+  technicianId         String?
+  technician           User?               @relation("InvoiceItemTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
+  itemType             InvoiceItemType     @default(SERVICE)
+  name                 String
+  productName          String?
+  price                Decimal             @db.Decimal(10, 2)
+  quantity             Int                 @default(1)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([invoiceId])
+  @@index([serviceId])
+  @@index([retailProductId])
+  @@index([technicianId])
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  invoiceId     String
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount        Decimal       @db.Decimal(10, 2)
+  paymentMethod PaymentMethod
+  receivedById  String
+  receivedBy    User          @relation("ReceivedPayments", fields: [receivedById], references: [id], onDelete: Restrict)
+  paidAt        DateTime      @default(now())
+  notes         String?       @db.Text
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([invoiceId])
+  @@index([receivedById])
+  @@index([paymentMethod])
+  @@index([paidAt])
+}
+
+model ServiceStock {
+  id         String          @id @default(uuid())
+  name       String
+  category   String?
+  quantity   Decimal         @default(0) @db.Decimal(10, 2)
+  unit       String
+  isActive   Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  activities StockActivity[]
+
+  @@index([name])
+  @@index([category])
+  @@index([isActive])
+}
+
+model StockActivity {
+  id             String            @id @default(uuid())
+  serviceStockId String
+  serviceStock   ServiceStock      @relation(fields: [serviceStockId], references: [id], onDelete: Cascade)
+  type           StockActivityType
+  quantity       Decimal           @db.Decimal(10, 2)
+  reason         String?           @db.Text
+  referenceId    String?
+  createdById    String?
+  createdBy      User?             @relation("StockActivityCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime          @default(now())
+
+  @@index([serviceStockId])
+  @@index([type])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model RetailProduct {
+  id           String         @id @default(uuid())
+  barcode      String?        @unique
+  name         String
+  category     RetailCategory
+  price        Decimal        @db.Decimal(10, 2)
+  quantity     Int            @default(0)
+  isActive     Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  invoiceItems InvoiceItem[]
+
+  @@index([name])
+  @@index([category])
+  @@index([isActive])
+}
+
+model Attendance {
+  id            String           @id @default(uuid())
+  employeeId    String
+  employee      User             @relation("EmployeeAttendance", fields: [employeeId], references: [id], onDelete: Cascade)
+  date          DateTime         @db.Date
+  clockInTime   DateTime?
+  clockInPhoto  String?          @db.Text
+  clockOutTime  DateTime?
+  clockOutPhoto String?          @db.Text
+  workingHours  Decimal?         @db.Decimal(5, 2)
+  status        AttendanceStatus @default(NOT_STARTED)
+  isManual      Boolean          @default(false)
+  reason        String?          @db.Text
+  createdById   String?
+  createdBy     User?            @relation("AttendanceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([employeeId])
+  @@index([date])
+  @@index([status])
+  @@index([createdById])
+}
+
+model Expense {
+  id            String          @id @default(uuid())
+  date          DateTime        @db.Date
+  category      ExpenseCategory
+  amount        Decimal         @db.Decimal(10, 2)
+  paymentMethod PaymentMethod
+  note          String          @db.Text
+  createdById   String
+  createdBy     User            @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([date])
+  @@index([category])
+  @@index([createdById])
+}
+
+model CommissionRule {
+  id                  String               @id @default(uuid())
+  type                CommissionType       @default(REFERRAL)
+  percentage          Decimal              @db.Decimal(5, 2)
+  fixedAmount         Decimal?             @db.Decimal(10, 2)
+  serviceCategory     String?
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  employeeCommissions EmployeeCommission[]
+
+  @@index([type])
+  @@index([isActive])
+}
+
+model EmployeeCommission {
+  id               String           @id @default(uuid())
+  employeeId       String
+  employee         User             @relation("EmployeeCommissions", fields: [employeeId], references: [id], onDelete: Restrict)
+  invoiceId        String
+  invoice          Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  commissionRuleId String?
+  commissionRule   CommissionRule?  @relation(fields: [commissionRuleId], references: [id], onDelete: SetNull)
+  amount           Decimal          @db.Decimal(10, 2)
+  status           CommissionStatus @default(PENDING)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([employeeId])
+  @@index([invoiceId])
+  @@index([commissionRuleId])
+  @@index([status])
+}
+
+model TechnicianCommission {
+  id                   String               @id @default(uuid())
+  technicianId         String
+  technician           User                 @relation("TechnicianCommissions", fields: [technicianId], references: [id], onDelete: Restrict)
+  invoiceId            String
+  invoice              Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  appointmentServiceId String?
+  serviceId            String?
+  serviceName          String
+  serviceCategory      String?
+  servicePrice         Decimal              @db.Decimal(10, 2)
+  commissionRate       Decimal              @db.Decimal(5, 2)
+  baseCommission       Decimal              @db.Decimal(10, 2)
+  bonusAmount          Decimal              @default(0) @db.Decimal(10, 2)
+  totalCommission      Decimal              @db.Decimal(10, 2)
+  status               CommissionStatus     @default(PENDING)
+  notes                String?              @db.Text
+  approvedById         String?
+  approvedBy           User?                @relation("CommissionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt           DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  activities           CommissionActivity[]
+
+  @@index([technicianId])
+  @@index([invoiceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CommissionActivity {
+  id                     String               @id @default(uuid())
+  technicianCommissionId String
+  technicianCommission   TechnicianCommission @relation(fields: [technicianCommissionId], references: [id], onDelete: Cascade)
+  type                   CommissionActivityType
+  amount                 Decimal              @db.Decimal(10, 2)
+  previousTotal          Decimal?             @db.Decimal(10, 2)
+  newTotal               Decimal?             @db.Decimal(10, 2)
+  reason                 String?              @db.Text
+  performedById          String?
+  performedBy            User?                @relation("CommissionActivityPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
+  createdAt              DateTime             @default(now())
+
+  @@index([technicianCommissionId])
+  @@index([type])
+  @@index([performedById])
+}
+
+model LoyaltySetting {
+  id                      String   @id @default(uuid())
+  spendAmountForPoint     Decimal  @default(1000) @db.Decimal(10, 2)
+  pointsPerSpend          Int      @default(1)
+  pointsForDiscount       Int      @default(100)
+  discountAmount          Decimal  @default(1000) @db.Decimal(10, 2)
+  minPointsToRedeem       Int      @default(100)
+  birthdayRewardPoints    Int      @default(50)
+  anniversaryRewardPoints Int      @default(50)
+  pointsExpiryEnabled     Boolean  @default(false)
+  expiryDays              Int?     @default(365)
+  servicePoints           Json?
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+model ClientLoyalty {
+  id            String   @id @default(uuid())
+  clientId      String   @unique
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  balance       Int      @default(0)
+  totalEarned   Int      @default(0)
+  totalRedeemed Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([clientId])
+}
+
+model LoyaltyTransaction {
+  id           String                 @id @default(uuid())
+  clientId     String
+  client       Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type         LoyaltyTransactionType
+  points       Int
+  balanceAfter Int
+  source       String?
+  invoiceId    String?
+  invoice      Invoice?               @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  date         DateTime               @db.Date
+  createdAt    DateTime               @default(now())
+
+  @@index([clientId])
+  @@index([invoiceId])
+  @@index([type])
+  @@index([date])
+}
+
+model WhatsAppAutomation {
+  id        String                 @id @default(uuid())
+  type      WhatsAppAutomationType @unique
+  template  String                 @db.Text
+  timing    String?
+  isActive  Boolean                @default(true)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  @@index([type])
+  @@index([isActive])
+}
+
+model WhatsAppMessageLog {
+  id                String                 @id @default(uuid())
+  clientId          String?
+  client            Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  invoiceId         String?
+  invoice           Invoice?               @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  appointmentId     String?
+  appointment       Appointment?           @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  automationType    WhatsAppAutomationType?
+  recipientPhone    String
+  message           String                 @db.Text
+  providerMessageId String?
+  status            WhatsAppMessageStatus  @default(QUEUED)
+  failureReason     String?                @db.Text
+  idempotencyKey    String                 @unique
+  scheduledFor      DateTime?
+  sentAt            DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([clientId])
+  @@index([invoiceId])
+  @@index([appointmentId])
+  @@index([automationType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SocialMediaAccount {
+  id          String         @id @default(uuid())
+  platform    SocialPlatform @unique
+  accountName String
+  handle      String?
+  isConnected Boolean        @default(false)
+  pageId      String?
+  accessToken String?        @db.Text
+  metadata    String?        @db.Text
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([platform])
+  @@index([isConnected])
+}
+
+model SocialPost {
+  id              String            @id @default(uuid())
+  caption         String            @db.Text
+  mediaUrl        String?           @db.Text
+  mediaUrls       String?           @db.Text // JSON array of image URLs
+  mediaType       SocialMediaType   @default(PHOTO)
+  platforms       String            // JSON array of strings e.g. ["facebook", "instagram"]
+  status          SocialPostStatus  @default(DRAFT)
+  scheduledFor    DateTime?
+  publishedAt     DateTime?
+  errorMessage    String?           @db.Text
+  platformPostIds String?           @db.Text // JSON string: { "facebook": "id", "instagram": "id" }
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([createdAt])
+}
+
+
+model ClientFeedback {
+  id            String       @id @default(uuid())
+  clientId      String?
+  client        Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  rating        Int
+  comment       String?      @db.Text
+  token         String?      @unique
+  isSubmitted   Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([clientId])
+  @@index([appointmentId])
+  @@index([rating])
+}
+
+model Specialty {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([isActive])
+}
+
+// Phase 23: Cleaning Proof Records
+model CleaningRecord {
+  id             String          @id @default(uuid())
+  area           String
+  taskId         String?
+  cleanerId      String
+  cleaner        User            @relation("CleanerCleaningRecords", fields: [cleanerId], references: [id], onDelete: Cascade)
+  beforePhotoUrl String?         @db.Text
+  beforePublicId String?
+  afterPhotoUrl  String?         @db.Text
+  afterPublicId  String?
+  status         String          @default("COMPLETED")
+  notes          String?         @db.Text
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  media          CleaningMedia[]
+
+  @@index([cleanerId])
+  @@index([createdAt])
+}
+
+model CleaningMedia {
+  id               String         @id @default(uuid())
+  cleaningRecordId String
+  cleaningRecord   CleaningRecord @relation(fields: [cleaningRecordId], references: [id], onDelete: Cascade)
+  photoUrl         String         @db.Text
+  publicId         String?
+  uploadedBy       String?
+  createdAt        DateTime       @default(now())
+
+  @@index([cleaningRecordId])
+}
+

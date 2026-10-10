@@ -1,0 +1,62 @@
+{
+  "name": "omega-spa-pos-backend",
+  "version": "1.0.0",
+  "description": "OMEGA SPA POS Backend API — Luxury Day Spa Management & Point of Sale System",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/server.ts",
+    "build": "prisma generate && tsc",
+    "start": "prisma db push --accept-data-loss && node dist/server.js",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "db:seed": "node -r ts-node/register prisma/seed.ts",
+    "db:test": "node -r ts-node/register src/scripts/testConnection.ts"
+  },
+  "keywords": [
+    "spa",
+    "pos",
+    "management",
+    "backend",
+    "api"
+  ],
+  "author": "OMEGA SPA",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@prisma/client": "^5.20.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.7.5",
+    "@types/pdfkit": "^0.17.6",
+    "bcrypt": "^5.1.1",
+    "cloudinary": "^2.11.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^2.3.0",
+    "node-cron": "^4.6.0",
+    "pdfkit": "^0.20.2",
+    "prisma": "^5.20.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cors": "^2.8.17",
+    "@types/express-rate-limit": "^5.1.3",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/morgan": "^1.9.9",
+    "@types/multer": "^2.2.0",
+    "@types/node-cron": "^3.0.11",
+    "nodemon": "^3.1.7"
+  },
+  "prisma": {
+    "seed": "node -r ts-node/register prisma/seed.ts"
+  }
+}
