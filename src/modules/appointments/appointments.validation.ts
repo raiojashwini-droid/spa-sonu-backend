@@ -9,14 +9,40 @@ export const createAppointmentServiceItemSchema = z.object({
 
 export const appointmentTimeSchema = z
   .string({ required_error: 'appointmentTime is required' })
-  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Invalid time format (HH:MM)')
-  .refine(
-    (t) => {
-      const [h, m] = t.split(':').map(Number);
-      const mins = (h || 0) * 60 + (m || 0);
-      return mins >= 10 * 60 && mins <= 21 * 60;
-    },
-    { message: 'Appointment time must be between 10:00 AM and 9:00 PM (10:00 – 21:00)' }
+  .transform((val) => {
+    if (!val) return val;
+    const clean = val.trim();
+    // Convert 12-hour format e.g. "10:45 AM", "02:30 PM", "2:30 pm"
+    const match12 = clean.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+    if (match12) {
+      let hours = parseInt(match12[1], 10);
+      const mins = match12[2];
+      const period = match12[3].toUpperCase();
+      if (period === 'PM' && hours < 12) hours += 12;
+      if (period === 'AM' && hours === 12) hours = 0;
+      return `${String(hours).padStart(2, '0')}:${mins}`;
+    }
+    // Extract HH:MM from labeled strings like "10:45 (10:45 AM)" or "10:45:00"
+    const match24 = clean.match(/^(\d{1,2}):(\d{2})/);
+    if (match24) {
+      const hours = String(match24[1]).padStart(2, '0');
+      const mins = match24[2];
+      return `${hours}:${mins}`;
+    }
+    return clean;
+  })
+  .pipe(
+    z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Invalid time format (HH:MM)')
+      .refine(
+        (t) => {
+          const [h, m] = t.split(':').map(Number);
+          const mins = (h || 0) * 60 + (m || 0);
+          return mins >= 10 * 60 && mins <= 21 * 60;
+        },
+        { message: 'Appointment time must be between 10:00 AM and 9:00 PM (10:00 – 21:00)' }
+      )
   );
 
 export const createAppointmentSchema = z.object({
