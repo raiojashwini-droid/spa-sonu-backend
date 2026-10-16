@@ -6,7 +6,7 @@ export const createUserSchema = z.object({
   phone: z.string().optional().nullable(),
   username: z.string().optional(),
   role: z.string().min(1, 'Role is required'),
-  password: z.string().optional(),
+  password: z.string().min(6, 'Password is required (minimum 6 characters)'),
   specialties: z.array(z.string()).optional(),
 });
 

@@ -110,7 +110,10 @@ export class UsersService {
       throw new AppError(`Invalid role: ${input.role}`, HTTP_STATUS.BAD_REQUEST);
     }
 
-    const passwordToHash = input.password && input.password.trim() ? input.password.trim() : '123456';
+    if (!input.password || !input.password.trim()) {
+      throw new AppError('Password is required (minimum 6 characters)', HTTP_STATUS.BAD_REQUEST);
+    }
+    const passwordToHash = input.password.trim();
     const passwordHash = await bcrypt.hash(passwordToHash, 10);
 
     const specialtiesJson = (Array.isArray(input.specialties) ? input.specialties : []).map(
