@@ -49,9 +49,10 @@ export class InvoicesController {
     }
   }
 
-  async getPendingInvoices(_req: Request, res: Response, next: NextFunction) {
+  async getPendingInvoices(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await invoicesService.getPendingInvoices();
+      const authUser = (req as any).user as AuthContextUser;
+      const result = await invoicesService.getPendingInvoices(authUser);
       res.status(HTTP_STATUS.OK).json({
         success: true,
         data: result,
@@ -64,7 +65,8 @@ export class InvoicesController {
   async getInvoices(req: Request, res: Response, next: NextFunction) {
     try {
       const query = invoiceQuerySchema.parse(req.query);
-      const result = await invoicesService.getInvoices(query);
+      const authUser = (req as any).user as AuthContextUser;
+      const result = await invoicesService.getInvoices(query, authUser);
       res.status(HTTP_STATUS.OK).json({
         success: true,
         data: result,
@@ -77,7 +79,8 @@ export class InvoicesController {
   async getInvoiceById(req: Request, res: Response, next: NextFunction) {
     try {
       const id = getParamId(req, 'id');
-      const invoice = await invoicesService.getInvoiceById(id);
+      const authUser = (req as any).user as AuthContextUser;
+      const invoice = await invoicesService.getInvoiceById(id, authUser);
       res.status(HTTP_STATUS.OK).json({
         success: true,
         data: invoice,

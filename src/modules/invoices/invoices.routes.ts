@@ -18,21 +18,33 @@ router.post(
   (req, res, next) => invoicesController.createInvoice(req, res, next)
 );
 
-// RBAC: MANAGER & RECEPTION only for remaining routes. TECHNICIAN & CLEANER blocked.
+// GET /api/v1/invoices/pending — List pending payment invoices (Manager, Reception, Technician: own only)
+router.get(
+  '/pending',
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  (req, res, next) => invoicesController.getPendingInvoices(req, res, next)
+);
+
+// GET /api/v1/invoices — List all invoices (Manager, Reception, Technician: own only)
+router.get(
+  '/',
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  (req, res, next) => invoicesController.getInvoices(req, res, next)
+);
+
+// GET /api/v1/invoices/:id — Get single invoice (Manager, Reception, Technician: own only)
+router.get(
+  '/:id',
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  (req, res, next) => invoicesController.getInvoiceById(req, res, next)
+);
+
+// RBAC: MANAGER & RECEPTION only for mutation routes. TECHNICIAN & CLEANER blocked.
 router.use(allowRoles('MANAGER', 'RECEPTION'));
 
 // POST /api/v1/invoices/:id/items — Add items (retail products) to invoice
 router.post('/:id/items', (req, res, next) => invoicesController.addInvoiceItem(req, res, next));
 router.post('/:id/retail-items', (req, res, next) => invoicesController.addInvoiceItem(req, res, next));
-
-// GET /api/v1/invoices/pending — List pending payment invoices
-router.get('/pending', (req, res, next) => invoicesController.getPendingInvoices(req, res, next));
-
-// GET /api/v1/invoices — List all invoices
-router.get('/', (req, res, next) => invoicesController.getInvoices(req, res, next));
-
-// GET /api/v1/invoices/:id — Get single invoice
-router.get('/:id', (req, res, next) => invoicesController.getInvoiceById(req, res, next));
 
 // PATCH /api/v1/invoices/:id — Update invoice (discount, status)
 router.patch('/:id', (req, res, next) => invoicesController.updateInvoice(req, res, next));

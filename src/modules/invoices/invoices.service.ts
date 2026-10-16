@@ -339,7 +339,7 @@ export class InvoicesService {
     });
   }
 
-  async getInvoices(query: InvoiceQueryFilter) {
+  async getInvoices(query: InvoiceQueryFilter, authUser?: AuthContextUser) {
     const page = Math.max(1, parseInt(String(query.page || 1), 10));
     const limit = Math.max(1, Math.min(1000, parseInt(String(query.limit || 20), 10)));
     const skip = (page - 1) * limit;
@@ -348,13 +348,32 @@ export class InvoicesService {
     if (query.status) where.status = query.status;
     if (query.clientId) where.clientId = query.clientId;
     if (query.date) where.date = new Date(query.date);
+
+    const conditions: any[] = [];
+
+    // RBAC: Technicians can only view invoices of appointments or services they handled
+    if (authUser && String(authUser.role).toUpperCase() === 'TECHNICIAN') {
+      conditions.push({
+        OR: [
+          { appointment: { mainTechnicianId: authUser.id } },
+          { items: { some: { technicianId: authUser.id } } },
+        ],
+      });
+    }
+
     if (query.search && query.search.trim()) {
       const s = query.search.trim();
-      where.OR = [
-        { invoiceNumber: { contains: s, mode: 'insensitive' } },
-        { client: { name: { contains: s, mode: 'insensitive' } } },
-        { client: { phone: { contains: s, mode: 'insensitive' } } },
-      ];
+      conditions.push({
+        OR: [
+          { invoiceNumber: { contains: s, mode: 'insensitive' } },
+          { client: { name: { contains: s, mode: 'insensitive' } } },
+          { client: { phone: { contains: s, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    if (conditions.length > 0) {
+      where.AND = conditions;
     }
 
     const [total, invoices] = await Promise.all([
@@ -369,7 +388,7 @@ export class InvoicesService {
             select: { id: true, name: true, phone: true, quartier: true },
           },
           appointment: {
-            select: { id: true, notes: true, appointmentDate: true, appointmentTime: true, serviceSummary: true },
+            select: { id: true, notes: true, appointmentDate: true, appointmentTime: true, serviceSummary: true, mainTechnicianId: true },
           },
           items: true,
           payments: true,
@@ -399,11 +418,11 @@ export class InvoicesService {
     };
   }
 
-  async getPendingInvoices() {
-    return this.getInvoices({ status: InvoiceStatus.PENDING_PAYMENT, limit: 100 });
+  async getPendingInvoices(authUser?: AuthContextUser) {
+    return this.getInvoices({ status: InvoiceStatus.PENDING_PAYMENT, limit: 100 }, authUser);
   }
 
-  async getInvoiceById(id: string) {
+  async getInvoiceById(id: string, authUser?: AuthContextUser) {
     const invoice = await prisma.invoice.findUnique({
       where: { id },
       include: {
@@ -411,7 +430,7 @@ export class InvoicesService {
           select: { id: true, name: true, phone: true, whatsapp: true, quartier: true },
         },
         appointment: {
-          select: { id: true, notes: true, appointmentDate: true, appointmentTime: true, status: true, serviceSummary: true },
+          select: { id: true, notes: true, appointmentDate: true, appointmentTime: true, status: true, serviceSummary: true, mainTechnicianId: true },
         },
         items: {
           include: {
@@ -436,6 +455,17 @@ export class InvoicesService {
 
     if (!invoice) {
       throw new AppError('Invoice not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    // RBAC: If caller is a technician, they cannot view invoices belonging to other technicians
+    if (authUser && String(authUser.role).toUpperCase() === 'TECHNICIAN') {
+      const isOwnInvoice =
+        invoice.appointment?.mainTechnicianId === authUser.id ||
+        invoice.items.some((it: any) => it.technicianId === authUser.id);
+
+      if (!isOwnInvoice) {
+        throw new AppError('Forbidden: You can only view your own invoices', HTTP_STATUS.FORBIDDEN);
+      }
     }
 
     const paidAmount = invoice.payments.reduce((sum, p) => sum + Number(p.amount), 0);
