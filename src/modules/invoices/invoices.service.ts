@@ -187,7 +187,7 @@ export class InvoicesService {
                   invoiceId: created.id,
                   appointmentServiceId: s.id,
                   serviceId: s.serviceId,
-                  technicianId: s.technicianId,
+                  technicianId: s.technicianId || appointment?.mainTechnicianId || null,
                   itemType: InvoiceItemType.SERVICE,
                   name: s.service?.name || 'Spa Service',
                   price: s.price,
@@ -388,9 +388,33 @@ export class InvoicesService {
             select: { id: true, name: true, phone: true, quartier: true },
           },
           appointment: {
-            select: { id: true, notes: true, appointmentDate: true, appointmentTime: true, serviceSummary: true, mainTechnicianId: true },
+            select: {
+              id: true,
+              notes: true,
+              appointmentDate: true,
+              appointmentTime: true,
+              serviceSummary: true,
+              mainTechnicianId: true,
+              mainTechnician: {
+                select: {
+                  id: true,
+                  staffProfile: {
+                    select: { name: true },
+                  },
+                },
+              },
+            },
           },
-          items: true,
+          items: {
+            include: {
+              technician: {
+                select: { id: true, email: true, staffProfile: { select: { name: true } } },
+              },
+              retailProduct: {
+                select: { id: true, name: true, category: true, quantity: true },
+              },
+            },
+          },
           payments: true,
         },
       }),
@@ -430,7 +454,23 @@ export class InvoicesService {
           select: { id: true, name: true, phone: true, whatsapp: true, quartier: true },
         },
         appointment: {
-          select: { id: true, notes: true, appointmentDate: true, appointmentTime: true, status: true, serviceSummary: true, mainTechnicianId: true },
+          select: {
+            id: true,
+            notes: true,
+            appointmentDate: true,
+            appointmentTime: true,
+            status: true,
+            serviceSummary: true,
+            mainTechnicianId: true,
+            mainTechnician: {
+              select: {
+                id: true,
+                staffProfile: {
+                  select: { name: true },
+                },
+              },
+            },
+          },
         },
         items: {
           include: {
