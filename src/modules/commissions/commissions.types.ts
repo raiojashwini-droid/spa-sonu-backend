@@ -41,22 +41,37 @@ export interface SalaryContractSettings {
 
 export interface SalaryPerformanceMetrics {
   mtdSales: number;
+  salesTotal?: number;
   spaTotalSales: number;
   targetQuota: number;
   targetProgressPercent: number;
+  percentageAchieved?: number;
   isTargetMet: boolean;
   salesRemainingToTarget: number;
+  remainingToTarget?: number;
 }
 
 export interface SalaryCalculationDetails {
   activeMode: 'FIXED_SALARY' | 'BASE_PLUS_COMMISSION';
+  mode?: 'MODE_A_BELOW_TARGET' | 'MODE_B_TARGET_MET';
   modeLabel: string;
+  commissionUnlocked?: boolean;
   fixedSalaryAmount: number;
+  fixedSalaryFloor?: number;
   basePayAmount: number;
+  basePay?: number;
   grossCommissionAccumulated: number;
+  grossCommission?: number;
   referralDeductionsTotal: number;
+  referralDeductions?: number;
+  totalPenalties?: number;
   netCommissionAccumulated: number;
+  netCommission?: number;
+  unearnedCommissionLocked?: number;
   currentProjectedPayout: number;
+  effectivePayout?: number;
+  calculatedPayout?: number;
+  floorProtectionApplied?: boolean;
   projectedPayoutAtExactTarget: number;
   potentialGainOnReachingTarget: number;
 }
