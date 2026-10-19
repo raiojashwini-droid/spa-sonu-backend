@@ -122,6 +122,29 @@ export class CommissionsController {
       next(error);
     }
   }
+
+  async getSalarySummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const authUser = (req as any).user as AuthContextUser;
+      let targetTechnicianId = (req.query.technicianId as string) || authUser.id;
+
+      // Scoping: Non-managers can only view their own salary summary
+      if (authUser.role !== 'MANAGER') {
+        targetTechnicianId = authUser.id;
+      }
+
+      const period = req.query.period as string | undefined;
+      const result = await commissionsService.getSalarySummary(targetTechnicianId, period);
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const commissionsController = new CommissionsController();
+

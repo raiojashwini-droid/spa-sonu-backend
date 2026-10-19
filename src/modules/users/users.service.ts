@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler';
 import { HTTP_STATUS } from '../../config/constants';
-import { CreateUserInput, UpdateUserInput, UserResponse } from './users.types';
+import { CreateUserInput, UpdateUserInput, UserResponse, SalaryContractInput, SalaryContractResponse } from './users.types';
 
 export class UsersService {
   private formatUser(user: any): UserResponse {
@@ -29,6 +29,17 @@ export class UsersService {
       specialties = specialties.filter((s) => s.toLowerCase() !== 'marketer');
     }
 
+    let salaryContract;
+    if (user.staffProfile) {
+      salaryContract = {
+        monthlyTarget: Number(user.staffProfile.monthlyTarget || 0),
+        basePay: Number(user.staffProfile.basePay || 0),
+        commissionRate: Number(user.staffProfile.commissionRate || 0),
+        fixedSalary: Number(user.staffProfile.fixedSalary || 0),
+        targetScope: user.staffProfile.targetScope || 'INDIVIDUAL',
+      };
+    }
+
     return {
       id: user.id,
       name: user.staffProfile?.name || email.split('@')[0],
@@ -38,6 +49,7 @@ export class UsersService {
       role: roleName.toLowerCase(),
       specialties: specialties,
       active: user.isActive,
+      salaryContract,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -307,6 +319,81 @@ export class UsersService {
       data: { isActive: false },
     });
   }
+
+  async updateSalaryContract(userId: string, input: SalaryContractInput): Promise<SalaryContractResponse> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { staffProfile: true, role: true },
+    });
+
+    if (!user) {
+      throw new AppError('User not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const monthlyTarget = Number(input.monthlyTarget) || 0;
+    const basePay = Number(input.basePay) || 0;
+    const commissionRate = Number(input.commissionRate) || 0;
+    const fixedSalary = Number(input.fixedSalary) || 0;
+    const targetScope = input.targetScope === 'SPA_TOTAL' ? 'SPA_TOTAL' : 'INDIVIDUAL';
+
+    if (monthlyTarget < 0 || basePay < 0 || fixedSalary < 0) {
+      throw new AppError('Monetary parameters must be non-negative', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    if (commissionRate < 0 || commissionRate > 100) {
+      throw new AppError('Commission rate must be between 0% and 100%', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Advisory check: If basePay + target * commissionRate / 100 < fixedSalary
+    let advisoryWarning: string | null = null;
+    const projectedAtTarget = basePay + (monthlyTarget * commissionRate) / 100;
+    if (projectedAtTarget < fixedSalary) {
+      advisoryWarning =
+        'Advisory: Base pay + commission at exact target (' +
+        projectedAtTarget.toLocaleString('en-US') +
+        ' FCFA) is lower than fixed salary (' +
+        fixedSalary.toLocaleString('en-US') +
+        ' FCFA). The employee will receive the guaranteed floor under the payout formula.';
+    }
+
+    let updatedProfile;
+    if (user.staffProfile) {
+      updatedProfile = await prisma.staffProfile.update({
+        where: { userId },
+        data: {
+          monthlyTarget,
+          basePay,
+          commissionRate,
+          fixedSalary,
+          targetScope,
+        },
+      });
+    } else {
+      updatedProfile = await prisma.staffProfile.create({
+        data: {
+          userId,
+          name: user.email.split('@')[0],
+          monthlyTarget,
+          basePay,
+          commissionRate,
+          fixedSalary,
+          targetScope,
+        },
+      });
+    }
+
+    return {
+      userId: user.id,
+      staffName: updatedProfile.name,
+      monthlyTarget: Number(updatedProfile.monthlyTarget),
+      basePay: Number(updatedProfile.basePay),
+      commissionRate: Number(updatedProfile.commissionRate),
+      fixedSalary: Number(updatedProfile.fixedSalary),
+      targetScope: updatedProfile.targetScope,
+      advisoryWarning,
+    };
+  }
 }
 
 export const usersService = new UsersService();
+

@@ -8,6 +8,7 @@ import {
   AdjustCommissionInput,
   SetCommissionRuleInput,
   AuthContextUser,
+  SalarySummaryData,
 } from './commissions.types';
 
 export class CommissionsService {
@@ -553,6 +554,252 @@ export class CommissionsService {
       orderBy: { serviceCategory: 'asc' },
     });
   }
+
+  /**
+   * Retrieves Authoritative Monthly Salary & Target Summary for an employee.
+   * Dynamically evaluates Mode A (Fixed Salary) vs Mode B (Base Pay + Commission).
+   * Implements minimum floor guarantee max(S_fixed, Base + Net Commission).
+   */
+  async getSalarySummary(technicianId: string, period?: string): Promise<SalarySummaryData> {
+    const staff = await prisma.user.findUnique({
+      where: { id: technicianId },
+      include: {
+        role: true,
+        staffProfile: true,
+      },
+    });
+
+    if (!staff) {
+      throw new AppError('Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    // Determine calendar year and month in Africa/Douala
+    let year: number;
+    let month: number; // 1-12
+
+    if (period && /^\d{4}-\d{2}$/.test(period.trim())) {
+      const parts = period.trim().split('-');
+      year = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10);
+    } else {
+      const doualaStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Douala',
+        year: 'numeric',
+        month: '2-digit',
+      }).format(new Date()); // "YYYY-MM"
+      const parts = doualaStr.split('-');
+      year = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10);
+    }
+
+    const startOfMonth = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+    const endOfMonth = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    const periodLabel = `${monthNames[month - 1]} ${year}`;
+    const periodYearMonth = `${year}-${String(month).padStart(2, '0')}`;
+
+    // Contract parameters with built-in role/specialty fallback presets
+    const rawRole = (staff.role?.name || 'TECHNICIAN').toUpperCase();
+    let specialties: string[] = [];
+    if (staff.staffProfile?.specialties) {
+      if (Array.isArray(staff.staffProfile.specialties)) {
+        specialties = staff.staffProfile.specialties as string[];
+      } else if (typeof staff.staffProfile.specialties === 'string') {
+        try {
+          specialties = JSON.parse(staff.staffProfile.specialties);
+        } catch {
+          specialties = [];
+        }
+      }
+    }
+    const specStr = specialties.join(' ').toLowerCase();
+
+    let defaultTarget = 500000;
+    let defaultFixed = 80000;
+    let defaultBase = 50000;
+    let defaultComm = 15;
+    let defaultScope = 'INDIVIDUAL';
+
+    if (rawRole === 'RECEPTION') {
+      defaultTarget = 3500000;
+      defaultFixed = 100000;
+      defaultBase = 150000;
+      defaultComm = 0;
+      defaultScope = 'SPA_TOTAL';
+    } else if (specStr.includes('barber')) {
+      defaultTarget = 300000;
+      defaultFixed = 80000;
+      defaultBase = 50000;
+      defaultComm = 20;
+    } else if (specStr.includes('nail')) {
+      defaultTarget = 500000;
+      defaultFixed = 80000;
+      defaultBase = 50000;
+      defaultComm = 15;
+    } else if (specStr.includes('facial') || specStr.includes('esthetician') || specStr.includes('esthetic')) {
+      defaultTarget = 642000;
+      defaultFixed = 80000;
+      defaultBase = 50000;
+      defaultComm = 15;
+    }
+
+    const monthlyTarget = Number(staff.staffProfile?.monthlyTarget) > 0
+      ? Number(staff.staffProfile?.monthlyTarget)
+      : defaultTarget;
+    const basePay = Number(staff.staffProfile?.basePay) > 0
+      ? Number(staff.staffProfile?.basePay)
+      : defaultBase;
+    const commissionRate = Number(staff.staffProfile?.commissionRate) > 0
+      ? Number(staff.staffProfile?.commissionRate)
+      : defaultComm;
+    const fixedSalary = Number(staff.staffProfile?.fixedSalary) > 0
+      ? Number(staff.staffProfile?.fixedSalary)
+      : defaultFixed;
+    const targetScope = staff.staffProfile?.targetScope || defaultScope;
+
+    // 1. Compute Individual MTD Sales (Paid services performed by this technician)
+    const mtdItems = await prisma.invoiceItem.findMany({
+      where: {
+        technicianId: staff.id,
+        itemType: InvoiceItemType.SERVICE,
+        invoice: {
+          status: InvoiceStatus.PAID,
+          createdAt: { gte: startOfMonth, lte: endOfMonth },
+        },
+      },
+    });
+    let mtdSales = 0;
+    for (const it of mtdItems) {
+      mtdSales += Number(it.price) * it.quantity;
+    }
+
+    // 2. Compute Total Spa MTD Sales
+    const allSpaItems = await prisma.invoiceItem.findMany({
+      where: {
+        itemType: InvoiceItemType.SERVICE,
+        invoice: {
+          status: InvoiceStatus.PAID,
+          createdAt: { gte: startOfMonth, lte: endOfMonth },
+        },
+      },
+    });
+    let spaTotalSales = 0;
+    for (const it of allSpaItems) {
+      spaTotalSales += Number(it.price) * it.quantity;
+    }
+
+    // 3. Evaluate target qualifying revenue
+    const qualifyingRevenue = targetScope === 'SPA_TOTAL' ? spaTotalSales : mtdSales;
+    const isTargetMet = monthlyTarget > 0 && qualifyingRevenue >= monthlyTarget;
+    const targetProgressPercent = monthlyTarget > 0
+      ? Math.min(100, Math.round((qualifyingRevenue / monthlyTarget) * 1000) / 10)
+      : 0;
+    const salesRemainingToTarget = Math.max(0, monthlyTarget - qualifyingRevenue);
+
+    // 4. Referral deductions & recorded commissions
+    const techCommissions = await prisma.technicianCommission.findMany({
+      where: {
+        technicianId: staff.id,
+        createdAt: { gte: startOfMonth, lte: endOfMonth },
+      },
+    });
+    let referralDeductionsTotal = 0;
+    let rawGrossCommission = 0;
+    for (const tc of techCommissions) {
+      referralDeductionsTotal += Number(tc.referralDeduction || 0);
+      rawGrossCommission += Number(tc.baseCommission || 0);
+    }
+
+    const grossCommissionAccumulated = rawGrossCommission > 0
+      ? rawGrossCommission
+      : Math.round(((qualifyingRevenue * commissionRate) / 100) * 100) / 100;
+    const netCommissionAccumulated = Math.max(0, grossCommissionAccumulated - referralDeductionsTotal);
+
+    // 5. Dynamic Switching Mode & Payout
+    let activeMode: 'FIXED_SALARY' | 'BASE_PLUS_COMMISSION' = 'FIXED_SALARY';
+    let modeLabel = 'Fixed Flat Salary (Below Target)';
+    let currentProjectedPayout = fixedSalary;
+
+    if (targetScope === 'SPA_TOTAL') {
+      if (isTargetMet) {
+        activeMode = 'BASE_PLUS_COMMISSION';
+        modeLabel = 'Spa Target Met (Elevated Base Pay)';
+        currentProjectedPayout = Math.max(fixedSalary, basePay);
+      } else {
+        activeMode = 'FIXED_SALARY';
+        modeLabel = 'Fixed Flat Salary (Below Spa Target)';
+        currentProjectedPayout = fixedSalary;
+      }
+    } else {
+      if (isTargetMet) {
+        activeMode = 'BASE_PLUS_COMMISSION';
+        modeLabel = 'Target Met (Base Pay + Commission Tier)';
+        // Minimum floor protection guaranteed
+        currentProjectedPayout = Math.max(fixedSalary, basePay + netCommissionAccumulated);
+      } else {
+        activeMode = 'FIXED_SALARY';
+        modeLabel = 'Fixed Flat Salary (Below Target)';
+        currentProjectedPayout = fixedSalary;
+      }
+    }
+
+    // Benchmark simulation at exact quota
+    const projectedPayoutAtExactTarget = targetScope === 'SPA_TOTAL'
+      ? Math.max(fixedSalary, basePay)
+      : Math.max(fixedSalary, basePay + Math.round((monthlyTarget * commissionRate) / 100));
+    const potentialGainOnReachingTarget = Math.max(0, projectedPayoutAtExactTarget - fixedSalary);
+
+    // 6. Check if finalized in MonthlyPayrollRecord
+    const payrollRecord = await prisma.monthlyPayrollRecord.findUnique({
+      where: {
+        employeeId_periodYearMonth: {
+          employeeId: staff.id,
+          periodYearMonth,
+        },
+      },
+    });
+
+    return {
+      technicianId: staff.id,
+      technicianName: staff.staffProfile?.name || staff.email.split('@')[0],
+      role: rawRole.toLowerCase(),
+      specialty: specialties[0] || 'Technician',
+      period: periodLabel,
+      periodYearMonth,
+      contract: {
+        monthlyTarget,
+        basePay,
+        commissionRate,
+        fixedSalary,
+        targetScope,
+      },
+      performance: {
+        mtdSales,
+        spaTotalSales,
+        targetQuota: monthlyTarget,
+        targetProgressPercent,
+        isTargetMet,
+        salesRemainingToTarget,
+      },
+      calculation: {
+        activeMode,
+        modeLabel,
+        fixedSalaryAmount: fixedSalary,
+        basePayAmount: basePay,
+        grossCommissionAccumulated,
+        referralDeductionsTotal,
+        netCommissionAccumulated,
+        currentProjectedPayout,
+        projectedPayoutAtExactTarget,
+        potentialGainOnReachingTarget,
+      },
+      isFinalized: Boolean(payrollRecord?.isFinalized),
+    };
+  }
 }
 
 export const commissionsService = new CommissionsService();
+

@@ -32,6 +32,13 @@ router.post('/:id/approve', allowRoles('MANAGER'), (req, res, next) =>
   commissionsController.approveCommission(req, res, next)
 );
 
+// GET /api/v1/commissions/salary-summary — Authoritative MTD salary & target summary
+router.get(
+  '/salary-summary',
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
+  (req, res, next) => commissionsController.getSalarySummary(req, res, next)
+);
+
 // GET /api/v1/commissions/:technicianId — Technician / Marketer report (Manager, Reception, or own Technician/Marketer)
 router.get('/:technicianId', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'), (req, res, next) =>
   commissionsController.getTechnicianCommissions(req, res, next)

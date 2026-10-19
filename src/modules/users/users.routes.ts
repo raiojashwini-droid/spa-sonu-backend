@@ -29,6 +29,13 @@ router.post(
   (req, res, next) => usersController.createUser(req, res, next)
 );
 
+// PATCH /api/v1/users/:id/salary-contract — update salary & commission contract (Manager only)
+router.patch(
+  '/:id/salary-contract',
+  allowRoles('MANAGER'),
+  (req, res, next) => usersController.updateSalaryContract(req, res, next)
+);
+
 // PATCH /api/v1/users/:id — update staff (Manager only)
 router.patch(
   '/:id',
