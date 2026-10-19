@@ -144,6 +144,41 @@ export class CommissionsController {
       next(error);
     }
   }
+
+  async finalizePayroll(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { employeeId, period } = req.body;
+      if (!employeeId || !period) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: 'employeeId and period (YYYY-MM) are required.',
+        });
+        return;
+      }
+
+      const authUser = (req as any).user as AuthContextUser;
+      const result = await commissionsService.finalizeMonthlyPayroll(
+        employeeId,
+        period,
+        authUser.id
+      );
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: 'Monthly payroll successfully finalized and locked.',
+        data: result,
+      });
+    } catch (error: any) {
+      if (error.statusCode === 403) {
+        res.status(HTTP_STATUS.FORBIDDEN).json({
+          success: false,
+          error: error.message,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
 }
 
 export const commissionsController = new CommissionsController();

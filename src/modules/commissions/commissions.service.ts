@@ -69,6 +69,9 @@ export class CommissionsService {
       (item) => item.itemType === InvoiceItemType.SERVICE && item.technicianId
     );
 
+    // Generate employee referral commission if client was introduced by staff
+    const referralRecord = await this.generateEmployeeReferralCommission(invoiceId, client);
+
     for (const item of serviceItems) {
       const category = (item.service?.category || '').toLowerCase();
       const sName = item.name.toLowerCase();
@@ -89,6 +92,20 @@ export class CommissionsService {
       const itemTotal = Number(item.price) * item.quantity;
       const baseCommission = Math.round(((itemTotal * rate) / 100) * 100) / 100;
 
+      // Two-way Referral Commission Deduction (Section 4 & 6.2):
+      // When client is referred by staff, the referring staff's commission is deducted from technician's gross commission
+      let referralDeduction = 0;
+      if (referralRecord) {
+        if (referralRecord.rulePercentage > 0) {
+          referralDeduction = Math.round(((itemTotal * referralRecord.rulePercentage) / 100) * 100) / 100;
+        } else if (referralRecord.fixedAmount > 0 && serviceItems.length > 0) {
+          referralDeduction = Math.round((referralRecord.fixedAmount / serviceItems.length) * 100) / 100;
+        }
+        // Cap referral deduction at technician's gross commission so technician commission never drops below 0
+        referralDeduction = Math.min(baseCommission, referralDeduction);
+      }
+      const netCommission = Math.max(0, baseCommission - referralDeduction);
+
       const commission = await client.technicianCommission.create({
         data: {
           technicianId: item.technicianId!,
@@ -100,10 +117,14 @@ export class CommissionsService {
           servicePrice: new Prisma.Decimal(itemTotal),
           commissionRate: new Prisma.Decimal(rate),
           baseCommission: new Prisma.Decimal(baseCommission),
+          referralDeduction: new Prisma.Decimal(referralDeduction),
+          employeeCommissionId: referralRecord ? referralRecord.id : null,
           bonusAmount: new Prisma.Decimal(0),
-          totalCommission: new Prisma.Decimal(baseCommission),
+          totalCommission: new Prisma.Decimal(netCommission),
           status: CommissionStatus.PENDING,
-          notes: `Generated on payment for Invoice ${invoice.invoiceNumber}`,
+          notes: referralDeduction > 0
+            ? `Generated on payment for Invoice ${invoice.invoiceNumber} (Referral deduction: -${referralDeduction} FCFA)`
+            : `Generated on payment for Invoice ${invoice.invoiceNumber}`,
         },
       });
 
@@ -112,16 +133,15 @@ export class CommissionsService {
         data: {
           technicianCommissionId: commission.id,
           type: CommissionActivityType.GENERATED,
-          amount: new Prisma.Decimal(baseCommission),
+          amount: new Prisma.Decimal(netCommission),
           previousTotal: new Prisma.Decimal(0),
-          newTotal: new Prisma.Decimal(baseCommission),
-          reason: `Commission generated at ${rate}% for service "${item.name}" upon payment of Invoice ${invoice.invoiceNumber}`,
+          newTotal: new Prisma.Decimal(netCommission),
+          reason: referralDeduction > 0
+            ? `Commission generated at ${rate}% for service "${item.name}" (${baseCommission} FCFA gross, -${referralDeduction} FCFA referral deduction, ${netCommission} FCFA net) upon payment of Invoice ${invoice.invoiceNumber}`
+            : `Commission generated at ${rate}% for service "${item.name}" upon payment of Invoice ${invoice.invoiceNumber}`,
         },
       });
     }
-
-    // Generate employee referral commission if the client was introduced by an employee
-    await this.generateEmployeeReferralCommission(invoiceId, client);
   }
 
   /**
@@ -161,18 +181,25 @@ export class CommissionsService {
     if (employee.role?.name === 'MANAGER') return;
 
     // Idempotency: Check if EmployeeCommission already exists for this invoice + employee
-    const existingEmployeeComm = await client.employeeCommission.count({
+    const existingEmployeeComm = await client.employeeCommission.findFirst({
       where: { invoiceId, employeeId },
+      include: { commissionRule: true },
     });
 
-    if (existingEmployeeComm > 0) return;
+    if (existingEmployeeComm) {
+      return {
+        id: existingEmployeeComm.id,
+        rulePercentage: Number(existingEmployeeComm.commissionRule?.percentage || 0),
+        fixedAmount: Number(existingEmployeeComm.commissionRule?.fixedAmount || 0),
+      };
+    }
 
     // Look up active REFERRAL commission rule
     const referralRules = await client.commissionRule.findMany({
       where: { type: CommissionType.REFERRAL, isActive: true },
     });
 
-    if (referralRules.length === 0) return; // No referral rule configured — skip
+    if (referralRules.length === 0) return null; // No referral rule configured — skip
 
     const rule = referralRules[0]; // Use the first active referral rule
     const invoiceTotal = Number(invoice.total);
@@ -185,10 +212,10 @@ export class CommissionsService {
       commissionAmount = Math.round(((invoiceTotal * Number(rule.percentage)) / 100) * 100) / 100;
     }
 
-    if (commissionAmount <= 0) return;
+    if (commissionAmount <= 0) return null;
 
     // Create EmployeeCommission record
-    await client.employeeCommission.create({
+    const createdComm = await client.employeeCommission.create({
       data: {
         employeeId,
         invoiceId,
@@ -197,6 +224,12 @@ export class CommissionsService {
         status: CommissionStatus.PENDING,
       },
     });
+
+    return {
+      id: createdComm.id,
+      rulePercentage: Number(rule.percentage || 0),
+      fixedAmount: Number(rule.fixedAmount || 0),
+    };
   }
 
   /**
@@ -798,6 +831,79 @@ export class CommissionsService {
       },
       isFinalized: Boolean(payrollRecord?.isFinalized),
     };
+  }
+
+  /**
+   * Finalizes and freezes a month's payroll record for an employee.
+   * - Must be Manager role.
+   * - Immutability guard: if record is already finalized, returns 403 Forbidden.
+   * - Freezes authoritative snapshot into MonthlyPayrollRecord.
+   */
+  async finalizeMonthlyPayroll(employeeId: string, period: string, finalizedById: string) {
+    // 1. Check if record is already finalized (Immutability Guard)
+    const existing = await prisma.monthlyPayrollRecord.findUnique({
+      where: {
+        employeeId_periodYearMonth: {
+          employeeId,
+          periodYearMonth: period,
+        },
+      },
+    });
+
+    if (existing?.isFinalized) {
+      const err = new Error('Payroll record is finalized and locked against modification.');
+      (err as any).statusCode = 403;
+      throw err;
+    }
+
+    // 2. Fetch authoritative salary summary for the period
+    const summary = await this.getSalarySummary(employeeId, period);
+
+    // 3. Upsert into MonthlyPayrollRecord
+    const record = await prisma.monthlyPayrollRecord.upsert({
+      where: {
+        employeeId_periodYearMonth: {
+          employeeId,
+          periodYearMonth: period,
+        },
+      },
+      create: {
+        employeeId,
+        periodYearMonth: period,
+        targetScope: summary.contract.targetScope,
+        targetQuota: new Prisma.Decimal(summary.contract.monthlyTarget),
+        actualRevenue: new Prisma.Decimal(summary.performance.mtdSales),
+        isTargetMet: summary.performance.isTargetMet,
+        salaryMode: summary.calculation.activeMode,
+        fixedSalaryAmount: new Prisma.Decimal(summary.contract.fixedSalary),
+        basePayAmount: new Prisma.Decimal(summary.contract.basePay),
+        grossCommission: new Prisma.Decimal(summary.calculation.grossCommissionAccumulated),
+        referralDeductions: new Prisma.Decimal(summary.calculation.referralDeductionsTotal),
+        netCommission: new Prisma.Decimal(summary.calculation.netCommissionAccumulated),
+        finalPayoutAmount: new Prisma.Decimal(summary.calculation.currentProjectedPayout),
+        isFinalized: true,
+        finalizedById,
+        finalizedAt: new Date(),
+      },
+      update: {
+        targetScope: summary.contract.targetScope,
+        targetQuota: new Prisma.Decimal(summary.contract.monthlyTarget),
+        actualRevenue: new Prisma.Decimal(summary.performance.mtdSales),
+        isTargetMet: summary.performance.isTargetMet,
+        salaryMode: summary.calculation.activeMode,
+        fixedSalaryAmount: new Prisma.Decimal(summary.contract.fixedSalary),
+        basePayAmount: new Prisma.Decimal(summary.contract.basePay),
+        grossCommission: new Prisma.Decimal(summary.calculation.grossCommissionAccumulated),
+        referralDeductions: new Prisma.Decimal(summary.calculation.referralDeductionsTotal),
+        netCommission: new Prisma.Decimal(summary.calculation.netCommissionAccumulated),
+        finalPayoutAmount: new Prisma.Decimal(summary.calculation.currentProjectedPayout),
+        isFinalized: true,
+        finalizedById,
+        finalizedAt: new Date(),
+      },
+    });
+
+    return record;
   }
 }
 

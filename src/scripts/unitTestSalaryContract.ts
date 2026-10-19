@@ -221,6 +221,33 @@ async function runUnitTests() {
     assert(summaryRecept.calculation.activeMode === 'BASE_PLUS_COMMISSION', 'Receptionist switches to elevated base pay mode');
     assert(summaryRecept.calculation.currentProjectedPayout === 150000, 'Receptionist receives elevated Base Pay (150,000 FCFA)');
 
+    // 6. Test Payroll Finalization & Immutability Guard
+    console.log('\n[Test Group 6: Payroll Finalization & Immutability Guard]');
+    let payrollStore: any = null;
+    (prisma.monthlyPayrollRecord as any).findUnique = async () => payrollStore;
+    (prisma.monthlyPayrollRecord as any).upsert = async (args: any) => {
+      payrollStore = { ...args.create, id: 'payroll-123' };
+      return payrollStore;
+    };
+
+    const finalizedRecord = await commissionsService.finalizeMonthlyPayroll('tech-uuid-1111', '2026-10', 'manager-uuid-0000');
+    assert(finalizedRecord.isFinalized === true, 'Successfully finalizes monthly payroll record');
+    assert(finalizedRecord.finalizedById === 'manager-uuid-0000', 'Records manager user ID who finalized the payroll');
+
+    // Attempting to modify a finalized record must throw 403 Forbidden
+    let blockedError: any = null;
+    try {
+      await commissionsService.finalizeMonthlyPayroll('tech-uuid-1111', '2026-10', 'manager-uuid-0000');
+    } catch (err: any) {
+      blockedError = err;
+    }
+    assert(blockedError !== null, 'Rejects modification attempt on finalized payroll');
+    assert(blockedError.statusCode === 403, 'Returns HTTP 403 Forbidden on finalized record edit');
+    assert(
+      blockedError.message.includes('locked against modification'),
+      'Provides clear immutability message: locked against modification'
+    );
+
   } finally {
     // Restore mocks
     prisma.user.findUnique = originalUserFindUnique;
