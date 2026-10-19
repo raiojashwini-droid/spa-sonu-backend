@@ -38,6 +38,7 @@ export interface ClientQueryFilter {
   search?: string;
   status?: string;
   isActive?: boolean | string;
+  introducedByEmployeeId?: string | null;
 }
 
 

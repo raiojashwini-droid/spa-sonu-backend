@@ -41,11 +41,7 @@ export class ClientsService {
       }
     }
 
-    // 2. Client Acquisition Tracking Business Rule:
-    // When the logged-in user is a MANAGER:
-    // - Client is created normally (DIRECT).
-    // - No referral attribution, no employee referral commission, no Manager commission.
-    // - Even if referral info is sent manually via API by a Manager, it is stripped.
+    // 2. Client Acquisition / Referral Attribution Rule:
     let introducedByEmployeeId: string | null = null;
     let source: ClientSource = ClientSource.DIRECT;
     let referredByClientId: string | null = null;
@@ -53,45 +49,53 @@ export class ClientsService {
     let recommendedByPhone: string | null = null;
 
     if (authUser.role === 'MANAGER') {
-      // Manager client creation: strictly normal DIRECT client with no referral attribution
-      introducedByEmployeeId = null;
-      source = ClientSource.DIRECT;
-      referredByClientId = null;
-      recommendedByName = null;
-      recommendedByPhone = null;
-    } else if (authUser.role === 'TECHNICIAN') {
-      // Technician creates client: auto-attribute to technician
-      introducedByEmployeeId = authUser.id;
-      source = ClientSource.STAFF_REFERRAL;
-    } else {
-      // Other staff (e.g. RECEPTION):
-      if (data.introducedByEmployeeId) {
-        // Verify introducedByEmployeeId is an eligible staff member (NOT a Manager)
-        const employee = await prisma.user.findUnique({
-          where: { id: data.introducedByEmployeeId },
+      // Manager client creation:
+      // Manager can optionally specify an active, eligible staff member as referrer
+      const cleanIntroducedId = data.introducedByEmployeeId ? String(data.introducedByEmployeeId).trim() : null;
+      if (cleanIntroducedId) {
+        const staffUser = await prisma.user.findFirst({
+          where: {
+            id: cleanIntroducedId,
+            isActive: true,
+          },
           include: { role: true },
         });
-        if (employee && employee.role?.name !== 'MANAGER') {
-          introducedByEmployeeId = data.introducedByEmployeeId;
-          source = ClientSource.STAFF_REFERRAL;
-        } else {
-          // Manager can never be an introducedBy employee
-          introducedByEmployeeId = null;
-          source = ClientSource.DIRECT;
-        }
-      } else if (data.referredByClientId) {
-        referredByClientId = data.referredByClientId;
-        source = ClientSource.CLIENT_REFERRAL;
-      } else if (data.source) {
-        source = data.source;
-      }
 
-      if (data.recommendedByName) {
-        recommendedByName = data.recommendedByName.trim() || null;
+        if (!staffUser) {
+          throw new AppError('Selected referring staff member does not exist or is inactive', HTTP_STATUS.BAD_REQUEST);
+        }
+
+        // Manager cannot attribute to another manager or cleaner (must be technician or reception)
+        const staffRole = staffUser.role?.name;
+        if (staffRole === 'MANAGER' || staffRole === 'CLEANER') {
+          throw new AppError('Selected staff member is not eligible for client referral attribution', HTTP_STATUS.BAD_REQUEST);
+        }
+
+        introducedByEmployeeId = staffUser.id;
+        source = ClientSource.STAFF_REFERRAL;
+      } else {
+        // Direct / Walk-In
+        introducedByEmployeeId = null;
+        source = ClientSource.DIRECT;
       }
-      if (data.recommendedByPhone) {
-        recommendedByPhone = data.recommendedByPhone.trim() || null;
-      }
+    } else {
+      // Non-manager staff (TECHNICIAN, RECEPTION, etc.):
+      // Derive referring employee strictly from authenticated session.
+      // Do NOT trust any client-submitted employee ID.
+      introducedByEmployeeId = authUser.id;
+      source = ClientSource.STAFF_REFERRAL;
+    }
+
+    if (data.referredByClientId) {
+      referredByClientId = data.referredByClientId;
+      source = ClientSource.CLIENT_REFERRAL;
+    }
+
+    if (data.recommendedByName) {
+      recommendedByName = data.recommendedByName.trim() || null;
+    }
+    if (data.recommendedByPhone) {
+      recommendedByPhone = data.recommendedByPhone.trim() || null;
     }
 
     // Parse dates
@@ -139,7 +143,7 @@ export class ClientsService {
     return client;
   }
 
-  async getClients(query: ClientQueryFilter) {
+  async getClients(query: ClientQueryFilter, authUser?: AuthContextUser) {
     const page = Math.max(1, parseInt(String(query.page || 1), 10));
     const limit = Math.max(1, Math.min(100, parseInt(String(query.limit || 20), 10)));
     const skip = (page - 1) * limit;
@@ -154,6 +158,21 @@ export class ClientsService {
       where.isActive = false;
     }
     // If rawStatus === 'ALL' or query.isActive === 'all' or empty, returns both active and inactive
+
+    // Referral query filtering with role-based server-side isolation:
+    // Technicians requesting referred clients are strictly locked to their own referrals (req.user.id).
+    // Any query-supplied introducedByEmployeeId is overridden for technicians to prevent parameter tampering.
+    // Managers and Reception staff can query any specific staff member's referrals or view all.
+    const roleUpper = authUser?.role?.toUpperCase();
+    if (roleUpper === 'TECHNICIAN' && authUser) {
+      if (query.introducedByEmployeeId !== undefined && query.introducedByEmployeeId !== null) {
+        where.introducedByEmployeeId = authUser.id;
+      }
+    } else {
+      if (query.introducedByEmployeeId && typeof query.introducedByEmployeeId === 'string' && query.introducedByEmployeeId.trim()) {
+        where.introducedByEmployeeId = query.introducedByEmployeeId.trim();
+      }
+    }
 
     if (query.search && query.search.trim() !== '') {
       const search = query.search.trim();

@@ -8,7 +8,7 @@ export const createClientSchema = z.object({
   birthday: z.string().optional().nullable(),
   anniversary: z.string().optional().nullable(),
   source: z.enum(['DIRECT', 'STAFF_REFERRAL', 'CLIENT_REFERRAL']).optional(),
-  introducedByEmployeeId: z.string().uuid().optional().nullable(),
+  introducedByEmployeeId: z.union([z.string().uuid(), z.literal(''), z.null()]).optional(),
   referredByClientId: z.string().uuid().optional().nullable(),
   recommendedByName: z.string().optional().nullable(),
   recommendedByPhone: z.string().optional().nullable(),
@@ -43,5 +43,6 @@ export const clientQuerySchema = z.object({
   search: z.string().optional(),
   status: z.enum(['ALL', 'ACTIVE', 'INACTIVE', 'all', 'active', 'inactive']).optional(),
   isActive: z.union([z.boolean(), z.string()]).optional(),
+  introducedByEmployeeId: z.string().optional(),
 });
 

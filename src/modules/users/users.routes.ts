@@ -8,17 +8,17 @@ const router = Router();
 // All staff / user management routes require authentication
 router.use(authMiddleware);
 
-// GET /api/v1/users — view staff (Manager, Reception, Technician)
+// GET /api/v1/users — view staff (Manager, Reception, Technician, Marketer)
 router.get(
   '/',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => usersController.getUsers(req, res, next)
 );
 
 // GET /api/v1/users/:id — view single staff member
 router.get(
   '/:id',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => usersController.getUserById(req, res, next)
 );
 

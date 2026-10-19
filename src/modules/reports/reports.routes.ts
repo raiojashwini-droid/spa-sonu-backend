@@ -7,13 +7,13 @@ const router = Router();
 
 router.use(authMiddleware);
 
-// Technician self-performance report (Technician, Reception, Manager)
-router.get('/technicians/me', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
+// Technician / Marketer self-performance report (Technician, Marketer, Reception, Manager)
+router.get('/technicians/me', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'), (req, res, next) =>
   reportsController.getMyTechnicianPerformance(req, res, next)
 );
 
-// Specific technician report by ID (Technician scoped to self, Reception & Manager can view)
-router.get('/technicians/:id', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
+// Specific technician / marketer report by ID (Technician/Marketer scoped to self, Reception & Manager can view)
+router.get('/technicians/:id', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'), (req, res, next) =>
   reportsController.getTechnicianById(req, res, next)
 );
 

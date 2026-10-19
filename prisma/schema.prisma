@@ -26,6 +26,7 @@ enum RoleName {
   RECEPTION
   TECHNICIAN
   CLEANER
+  MARKETER
 }
 
 enum ClientSource {

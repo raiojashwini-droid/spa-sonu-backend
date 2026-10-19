@@ -47,7 +47,7 @@ export class ClientsController {
       const validation = clientQuerySchema.safeParse(req.query);
       const query = validation.success ? validation.data : req.query;
 
-      const result = await clientsService.getClients(query);
+      const result = await clientsService.getClients(query, req.user!);
 
       res.status(HTTP_STATUS.OK).json({
         success: true,

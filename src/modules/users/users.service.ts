@@ -6,7 +6,7 @@ import { CreateUserInput, UpdateUserInput, UserResponse } from './users.types';
 
 export class UsersService {
   private formatUser(user: any): UserResponse {
-    const roleName = user.role?.name || 'TECHNICIAN';
+    let roleName = user.role?.name || 'TECHNICIAN';
     const email = user.email || '';
     const phone = user.phone || user.staffProfile?.phone || null;
     const username = email.split('@')[0];
@@ -22,6 +22,11 @@ export class UsersService {
         }
       }
       specialties = specialties.map((s) => (s === 'Massage' ? 'Body Massage' : s));
+    }
+
+    if (roleName === 'MARKETER' || specialties.some((s) => s.toLowerCase() === 'marketer')) {
+      roleName = 'MARKETER';
+      specialties = specialties.filter((s) => s.toLowerCase() !== 'marketer');
     }
 
     return {
@@ -103,9 +108,22 @@ export class UsersService {
     }
 
     const roleUpper = input.role.toUpperCase() as any;
-    const roleRecord = await prisma.role.findFirst({
+    let roleRecord = await prisma.role.findFirst({
       where: { name: roleUpper },
     });
+    if (!roleRecord && roleUpper === 'MARKETER') {
+      try {
+        roleRecord = await prisma.role.upsert({
+          where: { name: 'MARKETER' as any },
+          update: {},
+          create: { name: 'MARKETER' as any },
+        });
+      } catch {
+        roleRecord = await prisma.role.findFirst({
+          where: { name: 'TECHNICIAN' },
+        });
+      }
+    }
     if (!roleRecord) {
       throw new AppError(`Invalid role: ${input.role}`, HTTP_STATUS.BAD_REQUEST);
     }
@@ -116,7 +134,13 @@ export class UsersService {
     const passwordToHash = input.password.trim();
     const passwordHash = await bcrypt.hash(passwordToHash, 10);
 
-    const specialtiesJson = (Array.isArray(input.specialties) ? input.specialties : []).map(
+    const isMarketerRole = input.role.toLowerCase() === 'marketer';
+    const rawSpecs = Array.isArray(input.specialties) ? input.specialties : [];
+    const specialtiesList = isMarketerRole && !rawSpecs.includes('Marketer')
+      ? [...rawSpecs, 'Marketer']
+      : rawSpecs;
+
+    const specialtiesJson = specialtiesList.map(
       (s: string) => (s === 'Massage' ? 'Body Massage' : s)
     );
 
@@ -161,9 +185,22 @@ export class UsersService {
 
     if (input.role) {
       const roleUpper = input.role.toUpperCase() as any;
-      const roleRecord = await prisma.role.findFirst({
+      let roleRecord = await prisma.role.findFirst({
         where: { name: roleUpper },
       });
+      if (!roleRecord && roleUpper === 'MARKETER') {
+        try {
+          roleRecord = await prisma.role.upsert({
+            where: { name: 'MARKETER' as any },
+            update: {},
+            create: { name: 'MARKETER' as any },
+          });
+        } catch {
+          roleRecord = await prisma.role.findFirst({
+            where: { name: 'TECHNICIAN' },
+          });
+        }
+      }
       if (!roleRecord) {
         throw new AppError(`Invalid role: ${input.role}`, HTTP_STATUS.BAD_REQUEST);
       }

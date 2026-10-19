@@ -8,24 +8,24 @@ const router = Router();
 // All client routes require authentication
 router.use(authMiddleware);
 
-// POST /api/v1/clients — Create Client (Manager, Reception, Technician)
+// POST /api/v1/clients — Create Client (Manager, Reception, Technician, Marketer)
 router.post(
   '/',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => clientsController.createClient(req, res, next)
 );
 
-// GET /api/v1/clients — Client List (Manager, Reception, Technician)
+// GET /api/v1/clients — Client List (Manager, Reception, Technician, Marketer)
 router.get(
   '/',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => clientsController.getClients(req, res, next)
 );
 
-// GET /api/v1/clients/:id — Client Details (Manager, Reception, Technician)
+// GET /api/v1/clients/:id — Client Details (Manager, Reception, Technician, Marketer)
 router.get(
   '/:id',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => clientsController.getClientById(req, res, next)
 );
 

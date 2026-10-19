@@ -9,6 +9,7 @@ export interface AuthUserData {
   phone?: string | null;
   role: string;
   name?: string;
+  specialties?: string[];
 }
 
 export interface LoginResponseData {
