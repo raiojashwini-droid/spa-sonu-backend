@@ -218,6 +218,8 @@ model User {
   approvedCommissions           TechnicianCommission[] @relation("CommissionApprovedBy")
   performedCommissionActivities CommissionActivity[]   @relation("CommissionActivityPerformedBy")
   cleaningRecords               CleaningRecord[]       @relation("CleanerCleaningRecords")
+  penalties                     StaffPenalty[]         @relation("StaffPenalties")
+  recordedPenalties             StaffPenalty[]         @relation("PenaltyRecordedBy")
 
   @@index([roleId])
 }
@@ -804,5 +806,23 @@ model CleaningMedia {
   createdAt        DateTime       @default(now())
 
   @@index([cleaningRecordId])
+}
+
+model StaffPenalty {
+  id            String   @id @default(uuid())
+  staffId       String
+  staff         User     @relation("StaffPenalties", fields: [staffId], references: [id], onDelete: Cascade)
+  ruleName      String   @db.VarChar(100)
+  penaltyAmount Decimal  @db.Decimal(10, 2)
+  date          DateTime @db.Date
+  notes         String?  @db.Text
+  recordedById  String
+  recordedBy    User     @relation("PenaltyRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([staffId])
+  @@index([date])
+  @@index([recordedById])
 }
 

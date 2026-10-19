@@ -25,6 +25,7 @@ import mediaRoutes from './modules/media/media.routes';
 import attendanceRoutes from './modules/attendance/attendance.routes';
 import socialRoutes from './modules/social/social.routes';
 import { publicFeedbackRouter, clientFeedbackRouter, feedbackRouter } from './modules/feedback/feedback.routes';
+import penaltiesRoutes from './modules/penalties/penalties.routes';
 import path from 'path';
 
 const app = express();
@@ -139,6 +140,7 @@ app.use('/api/v1/social', socialRoutes);
 app.use('/api/v1/public/feedback', publicFeedbackRouter);
 app.use('/api/v1/client-feedback', clientFeedbackRouter);
 app.use('/api/v1/feedback', feedbackRouter);
+app.use('/api/v1/penalties', penaltiesRoutes);
 
 // ==================================================
 // Error Handling Middleware
