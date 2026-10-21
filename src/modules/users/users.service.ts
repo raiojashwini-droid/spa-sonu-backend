@@ -353,7 +353,7 @@ export class UsersService {
         projectedAtTarget.toLocaleString('en-US') +
         ' FCFA) is lower than fixed salary (' +
         fixedSalary.toLocaleString('en-US') +
-        ' FCFA). The employee will receive the guaranteed floor under the payout formula.';
+        ' FCFA). The employee will receive the fixed salary under the payout formula.';
     }
 
     let updatedProfile;
