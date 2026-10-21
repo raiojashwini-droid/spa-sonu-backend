@@ -152,14 +152,16 @@ export function initWhatsAppScheduler(): void {
     )
   );
 
-  // 5. Daily 00:00 (Midnight): Auto-purge WhatsApp message logs older than 30 days
+  // 5. Daily 00:00 (Midnight): Auto-purge WhatsApp message logs based on configured retention policy
   scheduledJobs.push(
     createGuardedJob(
-      'Auto-Purge Old WhatsApp Logs (>30 days)',
+      'Auto-Purge Old WhatsApp Logs',
       '0 0 * * *',
       async () => {
-        const result = await whatsappService.purgeOldMessageLogs(30);
+        const retentionDays = whatsappService.getRetentionDays();
+        const result = await whatsappService.purgeOldMessageLogs(retentionDays);
         logger.info('[WhatsApp Scheduler] Daily auto-purge of old WhatsApp message logs completed', {
+          retentionDays,
           deletedCount: result.deletedCount,
           cutoffDate: result.cutoffDate.toISOString(),
         });
@@ -168,7 +170,7 @@ export function initWhatsAppScheduler(): void {
   );
 
   logger.info(`✓ [WhatsApp Scheduler] ${scheduledJobs.length} WhatsApp automation cron jobs registered:`);
-  logger.info('  • Daily 00:00: Auto-purge old message logs (>30 days)');
+  logger.info('  • Daily 00:00: Auto-purge old message logs (Dynamic Retention Policy)');
   logger.info('  • Every hour: Appointment 24h/2h reminders');
   logger.info('  • Daily 09:00: Birthday & Anniversary greetings');
   logger.info('  • Daily 10:00: Rebooking inactive client reminders');

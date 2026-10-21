@@ -6,6 +6,7 @@ import {
   dailyCloseTriggerSchema,
   logsQuerySchema,
   purgeLogsSchema,
+  updateRetentionSchema,
 } from './whatsapp.validation';
 import { HTTP_STATUS } from '../../config/constants';
 import { AuthContextUser } from './whatsapp.types';
@@ -251,6 +252,32 @@ export class WhatsAppController {
         success: true,
         message: `Successfully purged ${result.deletedCount} message logs older than ${days} days.`,
         data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getRetentionSettings(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const days = whatsappService.getRetentionDays();
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        data: { retentionDays: days },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateRetentionSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const parsed = updateRetentionSchema.parse(req.body);
+      const days = whatsappService.setRetentionDays(parsed.days);
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: `Auto-cleanup retention updated to ${days} days.`,
+        data: { retentionDays: days },
       });
     } catch (error) {
       next(error);

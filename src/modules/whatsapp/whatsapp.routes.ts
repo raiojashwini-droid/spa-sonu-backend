@@ -89,4 +89,14 @@ router.post('/logs/purge', allowRoles('MANAGER'), (req, res, next) =>
   whatsappController.purgeOldLogs(req, res, next)
 );
 
+// GET /api/v1/whatsapp/settings/retention - View retention policy (Manager, Reception)
+router.get('/settings/retention', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+  whatsappController.getRetentionSettings(req, res, next)
+);
+
+// PATCH /api/v1/whatsapp/settings/retention - Update auto-cleanup retention days (Manager only)
+router.patch('/settings/retention', allowRoles('MANAGER'), (req, res, next) =>
+  whatsappController.updateRetentionSettings(req, res, next)
+);
+
 export default router;

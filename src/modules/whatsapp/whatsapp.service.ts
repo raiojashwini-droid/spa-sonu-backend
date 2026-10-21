@@ -14,6 +14,8 @@ import {
 import { whatsappAdapter } from './whatsapp.adapter';
 import { notificationEventBuilder } from '../notifications/notification-event.builder';
 import { invoicePdfService } from '../invoices/invoice-pdf.service';
+import fs from 'fs';
+import path from 'path';
 import { logger } from '../../utils/logger';
 
 export function normalizeAutomationType(input: string): WhatsAppAutomationType {
@@ -981,6 +983,35 @@ export class WhatsAppService {
       deletedCount: result.count,
       cutoffDate,
     };
+  }
+
+  private retentionFilePath = path.join(process.cwd(), 'whatsapp_retention.json');
+
+  getRetentionDays(): number {
+    try {
+      if (fs.existsSync(this.retentionFilePath)) {
+        const raw = fs.readFileSync(this.retentionFilePath, 'utf8');
+        const data = JSON.parse(raw);
+        if (typeof data.days === 'number' && data.days > 0) return data.days;
+      }
+    } catch (e) {
+      // fallback to 30
+    }
+    return 30;
+  }
+
+  setRetentionDays(days: number): number {
+    const safeDays = Math.max(1, Math.min(365, parseInt(String(days), 10) || 30));
+    try {
+      fs.writeFileSync(
+        this.retentionFilePath,
+        JSON.stringify({ days: safeDays, updatedAt: new Date().toISOString() }),
+        'utf8'
+      );
+    } catch (e: any) {
+      logger.warn('[WhatsApp Service] Could not write retention file', { error: e?.message });
+    }
+    return safeDays;
   }
 
   /**

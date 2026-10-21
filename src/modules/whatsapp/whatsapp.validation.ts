@@ -44,3 +44,7 @@ export const logsQuerySchema = z.object({
 export const purgeLogsSchema = z.object({
   days: z.coerce.number().min(1).max(365).optional().default(30),
 });
+
+export const updateRetentionSchema = z.object({
+  days: z.coerce.number().min(1).max(365),
+});
