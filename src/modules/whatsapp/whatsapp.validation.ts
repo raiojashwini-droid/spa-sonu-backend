@@ -40,3 +40,7 @@ export const logsQuerySchema = z.object({
   page: z.coerce.number().optional(),
   limit: z.coerce.number().optional(),
 });
+
+export const purgeLogsSchema = z.object({
+  days: z.coerce.number().min(1).max(365).optional().default(30),
+});

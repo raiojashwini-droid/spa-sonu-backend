@@ -84,4 +84,9 @@ router.post('/logs/:id/retry', allowRoles('MANAGER', 'RECEPTION'), (req, res, ne
   whatsappController.retryMessage(req, res, next)
 );
 
+// POST /api/v1/whatsapp/logs/purge - Purge old message logs (Manager only)
+router.post('/logs/purge', allowRoles('MANAGER'), (req, res, next) =>
+  whatsappController.purgeOldLogs(req, res, next)
+);
+
 export default router;

@@ -961,6 +961,29 @@ export class WhatsAppService {
   }
 
   /**
+   * Purge old WhatsApp message logs
+   * @param daysThreshold Number of days (default 30)
+   */
+  async purgeOldMessageLogs(daysThreshold: number = 30): Promise<{ deletedCount: number; cutoffDate: Date }> {
+    const safeDays = Math.max(1, Math.min(365, daysThreshold));
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - safeDays);
+
+    const result = await prisma.whatsAppMessageLog.deleteMany({
+      where: {
+        createdAt: {
+          lt: cutoffDate,
+        },
+      },
+    });
+
+    return {
+      deletedCount: result.count,
+      cutoffDate,
+    };
+  }
+
+  /**
    * Retry message (supports FAILED and QUEUED)
    */
   async retryFailedMessage(logId: string) {

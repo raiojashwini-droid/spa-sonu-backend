@@ -5,6 +5,7 @@ import {
   sendCustomMessageSchema,
   dailyCloseTriggerSchema,
   logsQuerySchema,
+  purgeLogsSchema,
 } from './whatsapp.validation';
 import { HTTP_STATUS } from '../../config/constants';
 import { AuthContextUser } from './whatsapp.types';
@@ -234,6 +235,22 @@ export class WhatsAppController {
         success: true,
         message: 'Message retry dispatched',
         data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async purgeOldLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const parsed = purgeLogsSchema.parse(req.body || {});
+      const days = parsed.days || 30;
+      const result = await whatsappService.purgeOldMessageLogs(days);
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: `Successfully purged ${result.deletedCount} message logs older than ${days} days.`,
+        data: result,
       });
     } catch (error) {
       next(error);
