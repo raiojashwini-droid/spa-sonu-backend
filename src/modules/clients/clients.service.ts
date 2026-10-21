@@ -160,11 +160,13 @@ export class ClientsService {
     // If rawStatus === 'ALL' or query.isActive === 'all' or empty, returns both active and inactive
 
     // Referral query filtering with role-based server-side isolation:
+    // Marketers are strictly locked to their own introduced clients (req.user.id).
     // Technicians requesting referred clients are strictly locked to their own referrals (req.user.id).
-    // Any query-supplied introducedByEmployeeId is overridden for technicians to prevent parameter tampering.
     // Managers and Reception staff can query any specific staff member's referrals or view all.
     const roleUpper = authUser?.role?.toUpperCase();
-    if (roleUpper === 'TECHNICIAN' && authUser) {
+    if (roleUpper === 'MARKETER' && authUser) {
+      where.introducedByEmployeeId = authUser.id;
+    } else if (roleUpper === 'TECHNICIAN' && authUser) {
       if (query.introducedByEmployeeId !== undefined && query.introducedByEmployeeId !== null) {
         where.introducedByEmployeeId = authUser.id;
       }
@@ -255,7 +257,7 @@ export class ClientsService {
   }
 
 
-  async getClientById(id: string) {
+  async getClientById(id: string, authUser?: AuthContextUser) {
     const client = await prisma.client.findUnique({
       where: { id },
       include: {
@@ -299,6 +301,13 @@ export class ClientsService {
 
     if (!client) {
       throw new AppError('Client not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    // Role-based security: Marketers are strictly restricted to their own introduced clients
+    if (authUser?.role?.toUpperCase() === 'MARKETER') {
+      if (client.introducedByEmployeeId !== authUser.id) {
+        throw new AppError('Access denied: You can only view details of clients you introduced', HTTP_STATUS.FORBIDDEN);
+      }
     }
 
     const { _count, appointments, ...rest } = client as any;

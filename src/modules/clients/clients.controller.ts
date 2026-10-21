@@ -62,7 +62,7 @@ export class ClientsController {
   async getClientById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const id = getParamId(req);
-      const client = await clientsService.getClientById(id);
+      const client = await clientsService.getClientById(id, req.user);
 
       res.status(HTTP_STATUS.OK).json({
         success: true,
