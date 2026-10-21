@@ -109,6 +109,8 @@ if (env.NODE_ENV === 'development') {
 app.get('/', (_req, res) => {
   res.status(200).json({
     message: 'OMEGA SPA POS Backend Running',
+    version: '1.2.0',
+    retentionReady: true,
   });
 });
 

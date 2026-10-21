@@ -11,6 +11,16 @@ router.get('/webhook', (req, res, next) => whatsappController.verifyWebhook(req,
 // Inbound webhook: POST for delivery status updates (public endpoint)
 router.post('/webhook', (req, res, next) => whatsappController.handleWebhook(req, res, next));
 
+// Public ping route to verify WhatsApp module deployment and routes
+router.get('/ping', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    module: 'whatsapp',
+    version: '1.2.0',
+    retentionEndpointReady: true,
+  });
+});
+
 // All subsequent routes require authentication
 router.use(authMiddleware);
 
