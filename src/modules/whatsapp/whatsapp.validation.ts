@@ -36,6 +36,7 @@ export const logsQuerySchema = z.object({
   appointmentId: z.string().optional(),
   invoiceId: z.string().optional(),
   phone: z.string().optional(),
+  search: z.string().optional(),
   page: z.coerce.number().optional(),
   limit: z.coerce.number().optional(),
 });

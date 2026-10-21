@@ -925,6 +925,14 @@ export class WhatsAppService {
     if (query.appointmentId) where.appointmentId = query.appointmentId;
     if (query.invoiceId) where.invoiceId = query.invoiceId;
     if (query.phone) where.recipientPhone = { contains: query.phone.trim() };
+    if (query.search && query.search.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { recipientPhone: { contains: q } },
+        { message: { contains: q } },
+        { client: { name: { contains: q } } },
+      ];
+    }
 
     const [total, logs] = await Promise.all([
       prisma.whatsAppMessageLog.count({ where }),
