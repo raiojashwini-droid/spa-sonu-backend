@@ -693,20 +693,49 @@ export class CommissionsService {
       : defaultFixed;
     const targetScope = staff.staffProfile?.targetScope || defaultScope;
 
-    // 1. Compute Individual MTD Sales (Paid services performed by this technician)
-    const mtdItems = await prisma.invoiceItem.findMany({
-      where: {
-        technicianId: staff.id,
-        itemType: InvoiceItemType.SERVICE,
-        invoice: {
+    const specs = Array.isArray(staff.staffProfile?.specialties)
+      ? (staff.staffProfile.specialties as any[])
+      : [];
+    const isMarketer = staff.role?.name === 'MARKETER' || specs.some((s: any) => String(s).toLowerCase() === 'marketer');
+
+    // 1. Compute Individual MTD Sales
+    let mtdSales = 0;
+    if (isMarketer) {
+      // Marketer: compute sales from all paid invoices of clients introduced by this marketer
+      const referredInvoices = await prisma.invoice.findMany({
+        where: {
+          client: {
+            introducedByEmployeeId: staff.id,
+          },
           status: InvoiceStatus.PAID,
           createdAt: { gte: startOfMonth, lte: endOfMonth },
         },
-      },
-    });
-    let mtdSales = 0;
-    for (const it of mtdItems) {
-      mtdSales += Number(it.price) * it.quantity;
+        include: {
+          items: {
+            where: { itemType: InvoiceItemType.SERVICE },
+          },
+        },
+      });
+      for (const inv of referredInvoices) {
+        for (const it of inv.items) {
+          mtdSales += Number(it.price) * it.quantity;
+        }
+      }
+    } else {
+      // Technician: compute sales performed by this technician
+      const mtdItems = await prisma.invoiceItem.findMany({
+        where: {
+          technicianId: staff.id,
+          itemType: InvoiceItemType.SERVICE,
+          invoice: {
+            status: InvoiceStatus.PAID,
+            createdAt: { gte: startOfMonth, lte: endOfMonth },
+          },
+        },
+      });
+      for (const it of mtdItems) {
+        mtdSales += Number(it.price) * it.quantity;
+      }
     }
 
     // 2. Compute Total Spa MTD Sales
@@ -733,17 +762,31 @@ export class CommissionsService {
     const salesRemainingToTarget = Math.max(0, monthlyTarget - qualifyingRevenue);
 
     // 4. Referral deductions & recorded commissions
-    const techCommissions = await prisma.technicianCommission.findMany({
-      where: {
-        technicianId: staff.id,
-        createdAt: { gte: startOfMonth, lte: endOfMonth },
-      },
-    });
     let referralDeductionsTotal = 0;
     let rawGrossCommission = 0;
-    for (const tc of techCommissions) {
-      referralDeductionsTotal += Number(tc.referralDeduction || 0);
-      rawGrossCommission += Number(tc.baseCommission || 0);
+
+    if (isMarketer) {
+      // Marketers earn referral commissions recorded in EmployeeCommission
+      const empCommissions = await prisma.employeeCommission.findMany({
+        where: {
+          employeeId: staff.id,
+          createdAt: { gte: startOfMonth, lte: endOfMonth },
+        },
+      });
+      for (const ec of empCommissions) {
+        rawGrossCommission += Number(ec.amount || 0);
+      }
+    } else {
+      const techCommissions = await prisma.technicianCommission.findMany({
+        where: {
+          technicianId: staff.id,
+          createdAt: { gte: startOfMonth, lte: endOfMonth },
+        },
+      });
+      for (const tc of techCommissions) {
+        referralDeductionsTotal += Number(tc.referralDeduction || 0);
+        rawGrossCommission += Number(tc.baseCommission || 0);
+      }
     }
 
     const grossCommissionAccumulated = rawGrossCommission > 0
