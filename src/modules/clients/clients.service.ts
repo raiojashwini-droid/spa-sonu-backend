@@ -145,7 +145,7 @@ export class ClientsService {
 
   async getClients(query: ClientQueryFilter, authUser?: AuthContextUser) {
     const page = Math.max(1, parseInt(String(query.page || 1), 10));
-    const limit = Math.max(1, Math.min(100, parseInt(String(query.limit || 20), 10)));
+    const limit = Math.max(1, Math.min(1000, parseInt(String(query.limit || 50), 10)));
     const skip = (page - 1) * limit;
 
     const where: any = {};
