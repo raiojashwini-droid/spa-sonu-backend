@@ -221,6 +221,7 @@ model User {
   penalties                     StaffPenalty[]         @relation("StaffPenalties")
   recordedPenalties             StaffPenalty[]         @relation("PenaltyRecordedBy")
   monthlyPayrolls               MonthlyPayrollRecord[] @relation("EmployeeMonthlyPayroll")
+  createdJobSeekers             JobSeeker[]          @relation("JobSeekersCreatedBy")
 
   @@index([roleId])
 }
@@ -870,6 +871,41 @@ model MonthlyPayrollRecord {
   @@unique([employeeId, periodYearMonth])
   @@index([periodYearMonth])
   @@index([isFinalized])
+}
+
+// Phase 25: Job Seekers & Recruitment Management
+enum JobSeekerStatus {
+  NEW
+  INTERVIEW_SCHEDULED
+  SHORTLISTED
+  HIRED
+  REJECTED
+}
+
+model JobSeeker {
+  id              String          @id @default(uuid())
+  fullName        String
+  phone           String
+  whatsapp        String?
+  email           String?
+  positionApplied String
+  experienceYears Int?            @default(0)
+  specialties     String?
+  expectedSalary  Decimal?        @db.Decimal(10, 2)
+  notes           String?         @db.Text
+  status          JobSeekerStatus @default(NEW)
+  appliedDate     DateTime        @default(now()) @db.Date
+  interviewDate   DateTime?       @db.Date
+  createdById     String?
+  createdBy       User?           @relation("JobSeekersCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([status])
+  @@index([positionApplied])
+  @@index([phone])
+  @@index([createdById])
+  @@index([appliedDate])
 }
 
 
