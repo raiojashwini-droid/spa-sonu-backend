@@ -1,4 +1,5 @@
 import prisma from '../../config/database';
+import { AppointmentStatus } from '@prisma/client';
 import { AppError } from '../../middleware/errorHandler';
 import { HTTP_STATUS } from '../../config/constants';
 import {
@@ -139,8 +140,7 @@ export class WhatsAppService {
 
     const activeFlag = input.isActive !== undefined ? input.isActive : input.enabled;
     const timeVal = input.timing !== undefined ? input.timing : input.scheduleTime;
-
-    return prisma.whatsAppAutomation.update({
+    const updated = await prisma.whatsAppAutomation.update({
       where: { type },
       data: {
         template: input.template !== undefined ? input.template.trim() : undefined,
@@ -148,6 +148,17 @@ export class WhatsAppService {
         timing: timeVal !== undefined ? (timeVal ? timeVal.trim() : null) : undefined,
       },
     });
+
+    if (timeVal && typeof timeVal === 'string') {
+      try {
+        const { rescheduleWhatsAppJob } = require('./whatsapp.scheduler');
+        rescheduleWhatsAppJob(type, timeVal.trim());
+      } catch (err: any) {
+        logger.warn('[WhatsApp Service] Dynamic reschedule could not be triggered:', err?.message || err);
+      }
+    }
+
+    return updated;
   }
 
   /**
@@ -210,6 +221,29 @@ export class WhatsAppService {
         return {
           alreadySent: true,
           log: existingByAppt,
+        };
+      }
+    }
+
+    // Secondary check B: Strict 30-day anti-spam cooldown specifically for REBOOKING marketing messages
+    if (automationType === WhatsAppAutomationType.REBOOKING && (recipientPhone || clientId)) {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const existingRebooking = await prisma.whatsAppMessageLog.findFirst({
+        where: {
+          automationType: WhatsAppAutomationType.REBOOKING,
+          OR: [
+            ...(recipientPhone ? [{ recipientPhone }] : []),
+            ...(clientId ? [{ clientId }] : []),
+          ],
+          status: { in: ['SENT', 'DELIVERED', 'QUEUED'] },
+          createdAt: { gte: thirtyDaysAgo },
+        },
+      });
+      if (existingRebooking) {
+        logger.info(`[WhatsApp Dispatch] Skipping rebooking for ${recipientPhone || clientId}: message already sent within 30 days.`);
+        return {
+          alreadySent: true,
+          log: existingRebooking,
         };
       }
     }
@@ -669,10 +703,76 @@ export class WhatsAppService {
   }
 
   /**
-   * 6. Rebooking Reminder Trigger
+   * 6. Rebooking Reminder Trigger with Anti-Spam Guards
    */
   async triggerRebooking(clientId: string, businessDate: string = new Date().toISOString().split('T')[0]) {
-    const event = await notificationEventBuilder.buildRebookingEvent(clientId, businessDate);
+    // 1. Fetch client with upcoming appointments check
+    const client: any = await prisma.client.findUnique({
+      where: { id: clientId },
+      include: {
+        appointments: {
+          where: {
+            status: { in: [AppointmentStatus.SCHEDULED, AppointmentStatus.IN_PROGRESS] },
+            appointmentDate: { gte: new Date() },
+          },
+          take: 1,
+        },
+      },
+    });
+
+    if (!client) {
+      throw new AppError('Client not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    // Guard A: Skip if client already has an upcoming appointment scheduled
+    if (client.appointments && client.appointments.length > 0) {
+      logger.info(`[WhatsApp Rebooking] Skipped client ${client.name} (${clientId}): Already has an active upcoming appointment.`);
+      return {
+        alreadySent: true,
+        skipped: true,
+        reason: 'Client already has an upcoming appointment scheduled',
+        log: { status: 'SKIPPED' as any },
+      };
+    }
+
+    // Guard B: Check 30-day anti-spam cooldown across WhatsAppMessageLog
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const clientPhone = client.phone || client.whatsapp;
+    if (clientPhone) {
+      const existingRecentLog = await prisma.whatsAppMessageLog.findFirst({
+        where: {
+          automationType: WhatsAppAutomationType.REBOOKING,
+          recipientPhone: clientPhone,
+          status: { in: ['SENT', 'DELIVERED', 'QUEUED'] },
+          createdAt: { gte: thirtyDaysAgo },
+        },
+      });
+
+      if (existingRecentLog) {
+        logger.info(`[WhatsApp Rebooking] Skipped client ${client.name} (${clientPhone}): Received rebooking reminder within last 30 days.`);
+        return {
+          alreadySent: true,
+          skipped: true,
+          reason: 'Client received rebooking reminder within last 30 days',
+          log: existingRecentLog,
+        };
+      }
+    }
+
+    // 2. Build Event safely (checks >= 30 days threshold)
+    let event: any;
+    try {
+      event = await notificationEventBuilder.buildRebookingEvent(clientId, businessDate);
+    } catch (err: any) {
+      logger.info(`[WhatsApp Rebooking] Inactivity requirement not met for client ${clientId}: ${err?.message || err}`);
+      return {
+        alreadySent: true,
+        skipped: true,
+        reason: err?.message || 'Inactivity threshold not met',
+        log: { status: 'SKIPPED' as any },
+      };
+    }
+
     const setting = await this.getAutomationByType(WhatsAppAutomationType.REBOOKING);
     const message = this.compileTemplate(setting.template, event.placeholders);
 
@@ -694,6 +794,7 @@ export class WhatsAppService {
 
   /**
    * Process Rebooking Reminders Batch
+   * Strictly targets clients with completed visits >= 30 days ago and NO upcoming bookings.
    */
   async processRebookingReminders(clientId?: string) {
     await this.ensureSeededAutomations();
@@ -703,20 +804,37 @@ export class WhatsAppService {
       const res = await this.triggerRebooking(clientId, todayStr);
       return {
         processedCount: 1,
-        sentCount: !res.alreadySent && res.log.status !== 'SKIPPED' ? 1 : 0,
-        skippedCount: res.alreadySent || res.log.status === 'SKIPPED' ? 1 : 0,
+        sentCount: !res.alreadySent && res.log?.status !== 'SKIPPED' ? 1 : 0,
+        skippedCount: res.alreadySent || res.log?.status === 'SKIPPED' ? 1 : 0,
         details: [res],
       };
     }
 
-    const fourMonthsAgo = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    // Query clients whose last visit is at least 30 days ago and have NO upcoming appointments
     const inactiveClients = await prisma.client.findMany({
       where: {
         isActive: true,
         OR: [
-          { lastVisitAt: { lte: fourMonthsAgo } },
-          { lastVisitAt: null },
+          { lastVisitAt: { lte: thirtyDaysAgo } },
+          {
+            lastVisitAt: null,
+            appointments: {
+              some: {
+                status: AppointmentStatus.COMPLETED,
+                appointmentDate: { lte: thirtyDaysAgo },
+              },
+            },
+          },
         ],
+        appointments: {
+          none: {
+            status: { in: [AppointmentStatus.SCHEDULED, AppointmentStatus.IN_PROGRESS] },
+            appointmentDate: { gte: now },
+          },
+        },
       },
       take: 50,
     });
@@ -726,7 +844,7 @@ export class WhatsAppService {
 
     for (const client of inactiveClients) {
       const res = await this.triggerRebooking(client.id, todayStr);
-      if (!res.alreadySent && res.log.status !== 'SKIPPED') {
+      if (!res.alreadySent && res.log?.status !== 'SKIPPED') {
         sentCount++;
       } else {
         skippedCount++;

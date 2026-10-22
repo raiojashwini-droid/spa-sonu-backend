@@ -74,6 +74,14 @@ export class PaymentsService {
 
         // Phase 19: Award loyalty points upon invoice PAID
         await loyaltyService.awardPointsForInvoice(invoice.id, tx);
+
+        // Update Client lastVisitAt
+        if (invoice.clientId) {
+          await tx.client.update({
+            where: { id: invoice.clientId },
+            data: { lastVisitAt: new Date() },
+          });
+        }
       }
 
       // Log payment activity in ClientHistory

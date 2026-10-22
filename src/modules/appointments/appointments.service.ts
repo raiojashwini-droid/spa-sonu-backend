@@ -536,6 +536,14 @@ export class AppointmentsService {
             completedAt: new Date(),
           },
         });
+
+        // Stamp Client lastVisitAt upon appointment completion
+        if (appointment.clientId) {
+          await tx.client.update({
+            where: { id: appointment.clientId },
+            data: { lastVisitAt: new Date() },
+          });
+        }
       }
 
       // Log ClientHistory: STATUS_CHANGED
