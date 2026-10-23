@@ -894,7 +894,7 @@ model JobSeeker {
   expectedSalary  Decimal?        @db.Decimal(10, 2)
   notes           String?         @db.Text
   status          JobSeekerStatus @default(NEW)
-  appliedDate     DateTime        @default(now()) @db.Date
+  appliedDate     DateTime        @default(now())
   interviewDate   DateTime?       @db.Date
   createdById     String?
   createdBy       User?           @relation("JobSeekersCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
