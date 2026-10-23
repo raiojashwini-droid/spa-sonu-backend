@@ -174,11 +174,14 @@ export class CommissionsService {
     // Verify the referring employee exists, is active, and is NOT a Manager
     const employee = await client.user.findUnique({
       where: { id: employeeId },
-      include: { role: true },
+      include: { role: true, staffProfile: true },
     });
 
     if (!employee || !employee.isActive) return;
     if (employee.role?.name === 'MANAGER') return;
+
+    // Staff personalized contract commissionRate takes highest precedence
+    const contractRate = Number(employee.staffProfile?.commissionRate || 0);
 
     // Idempotency: Check if EmployeeCommission already exists for this invoice + employee
     const existingEmployeeComm = await client.employeeCommission.findFirst({
@@ -187,29 +190,31 @@ export class CommissionsService {
     });
 
     if (existingEmployeeComm) {
+      const activeRate = contractRate > 0 ? contractRate : Number(existingEmployeeComm.commissionRule?.percentage || 0);
       return {
         id: existingEmployeeComm.id,
-        rulePercentage: Number(existingEmployeeComm.commissionRule?.percentage || 0),
+        rulePercentage: activeRate,
         fixedAmount: Number(existingEmployeeComm.commissionRule?.fixedAmount || 0),
       };
     }
 
-    // Look up active REFERRAL commission rule
+    // Look up active REFERRAL commission rule fallback
     const referralRules = await client.commissionRule.findMany({
       where: { type: CommissionType.REFERRAL, isActive: true },
     });
 
-    if (referralRules.length === 0) return null; // No referral rule configured — skip
-
-    const rule = referralRules[0]; // Use the first active referral rule
+    const rule = referralRules[0] || null;
     const invoiceTotal = Number(invoice.total);
 
-    // Calculate referral commission: percentage of invoice total, or fixed amount
+    // Calculate referral commission: prioritize employee contract rate over generic rule
+    let rulePercentage = contractRate > 0 ? contractRate : Number(rule?.percentage || 0);
+    let fixedAmount = rule?.fixedAmount ? Number(rule.fixedAmount) : 0;
+
     let commissionAmount = 0;
-    if (rule.fixedAmount && Number(rule.fixedAmount) > 0) {
-      commissionAmount = Number(rule.fixedAmount);
-    } else {
-      commissionAmount = Math.round(((invoiceTotal * Number(rule.percentage)) / 100) * 100) / 100;
+    if (fixedAmount > 0) {
+      commissionAmount = fixedAmount;
+    } else if (rulePercentage > 0) {
+      commissionAmount = Math.round(((invoiceTotal * rulePercentage) / 100) * 100) / 100;
     }
 
     if (commissionAmount <= 0) return null;
@@ -219,7 +224,7 @@ export class CommissionsService {
       data: {
         employeeId,
         invoiceId,
-        commissionRuleId: rule.id,
+        commissionRuleId: rule ? rule.id : null,
         amount: new Prisma.Decimal(commissionAmount),
         status: CommissionStatus.PENDING,
       },
@@ -227,8 +232,8 @@ export class CommissionsService {
 
     return {
       id: createdComm.id,
-      rulePercentage: Number(rule.percentage || 0),
-      fixedAmount: Number(rule.fixedAmount || 0),
+      rulePercentage,
+      fixedAmount,
     };
   }
 
@@ -775,6 +780,13 @@ export class CommissionsService {
       });
       for (const ec of empCommissions) {
         rawGrossCommission += Number(ec.amount || 0);
+      }
+
+      // Priority Enforcement: If Marketer has a customized contract commissionRate (e.g. 10%),
+      // ensure the commission calculated on qualifying referred sales matches contract rate!
+      if (commissionRate > 0 && qualifyingRevenue > 0) {
+        const contractCalculatedCommission = Math.round(((qualifyingRevenue * commissionRate) / 100) * 100) / 100;
+        rawGrossCommission = Math.max(rawGrossCommission, contractCalculatedCommission);
       }
     } else {
       const techCommissions = await prisma.technicianCommission.findMany({
