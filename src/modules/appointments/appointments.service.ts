@@ -273,11 +273,16 @@ export class AppointmentsService {
 
     const where: any = {};
 
-    // RBAC: Technician can ONLY view assigned appointments
+    // RBAC: Technician can ONLY view assigned appointments; Marketer can view their introduced/created appointments
     if (authUser.role === 'TECHNICIAN') {
       where.OR = [
         { mainTechnicianId: authUser.id },
         { appointmentServices: { some: { technicianId: authUser.id } } },
+      ];
+    } else if (authUser.role === 'MARKETER') {
+      where.OR = [
+        { createdById: authUser.id },
+        { client: { introducedByEmployeeId: authUser.id } },
       ];
     } else if (query.technicianId) {
       where.OR = [
@@ -344,7 +349,7 @@ export class AppointmentsService {
       where: { id },
       include: {
         client: {
-          select: { id: true, name: true, phone: true, whatsapp: true, quartier: true },
+          select: { id: true, name: true, phone: true, whatsapp: true, quartier: true, introducedByEmployeeId: true },
         },
         mainTechnician: {
           select: {
@@ -375,12 +380,18 @@ export class AppointmentsService {
       throw new AppError('Appointment not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    // RBAC: Technician cannot view other technicians' appointments
+    // RBAC: Technician cannot view other technicians' appointments; Marketer cannot view unrelated appointments
     if (authUser.role === 'TECHNICIAN') {
       const isMain = appointment.mainTechnicianId === authUser.id;
       const isParticipant = appointment.appointmentServices.some((s) => s.technicianId === authUser.id);
       if (!isMain && !isParticipant) {
         throw new AppError('Access forbidden: you can only view your assigned appointments', HTTP_STATUS.FORBIDDEN);
+      }
+    } else if (authUser.role === 'MARKETER') {
+      const isCreator = appointment.createdById === authUser.id;
+      const isClientIntroduced = (appointment.client as any)?.introducedByEmployeeId === authUser.id;
+      if (!isCreator && !isClientIntroduced) {
+        throw new AppError('Access forbidden: you can only view appointments for your introduced clients', HTTP_STATUS.FORBIDDEN);
       }
     }
 

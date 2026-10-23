@@ -15,17 +15,17 @@ router.post(
   (req, res, next) => appointmentsController.createAppointment(req, res, next)
 );
 
-// GET /api/v1/appointments — Get Appointments List (Manager, Reception, Technician own only)
+// GET /api/v1/appointments — Get Appointments List (Manager, Reception, Technician own only, Marketer introduced/own only)
 router.get(
   '/',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => appointmentsController.getAppointments(req, res, next)
 );
 
-// GET /api/v1/appointments/:id — Get Appointment Details (Manager, Reception, Technician assigned only)
+// GET /api/v1/appointments/:id — Get Appointment Details (Manager, Reception, Technician assigned only, Marketer introduced/own only)
 router.get(
   '/:id',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => appointmentsController.getAppointmentById(req, res, next)
 );
 
