@@ -11,31 +11,31 @@ router.get('/:id/pdf', (req, res, next) => invoicesController.getInvoicePdf(req,
 // All subsequent invoice routes require authentication
 router.use(authMiddleware);
 
-// POST /api/v1/invoices — Create invoice from completed appointment services (Manager, Reception, Technician)
+// POST /api/v1/invoices — Create invoice from completed appointment services (Manager, Reception, Technician, Marketer)
 router.post(
   '/',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => invoicesController.createInvoice(req, res, next)
 );
 
-// GET /api/v1/invoices/pending — List pending payment invoices (Manager, Reception, Technician: own only)
+// GET /api/v1/invoices/pending — List pending payment invoices (Manager, Reception, Technician, Marketer)
 router.get(
   '/pending',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => invoicesController.getPendingInvoices(req, res, next)
 );
 
-// GET /api/v1/invoices — List all invoices (Manager, Reception, Technician: own only)
+// GET /api/v1/invoices — List all invoices (Manager, Reception, Technician, Marketer)
 router.get(
   '/',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => invoicesController.getInvoices(req, res, next)
 );
 
-// GET /api/v1/invoices/:id — Get single invoice (Manager, Reception, Technician: own only)
+// GET /api/v1/invoices/:id — Get single invoice (Manager, Reception, Technician, Marketer)
 router.get(
   '/:id',
-  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'),
+  allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'),
   (req, res, next) => invoicesController.getInvoiceById(req, res, next)
 );
 
