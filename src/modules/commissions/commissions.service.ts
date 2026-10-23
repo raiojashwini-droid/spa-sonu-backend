@@ -198,9 +198,17 @@ export class CommissionsService {
       };
     }
 
-    // Look up active REFERRAL commission rule fallback
+    // Look up active REFERRAL or General commission rule fallback
     const referralRules = await client.commissionRule.findMany({
-      where: { type: CommissionType.REFERRAL, isActive: true },
+      where: {
+        isActive: true,
+        OR: [
+          { type: CommissionType.REFERRAL },
+          { serviceCategory: 'General' },
+          { serviceCategory: 'Referral' },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
     });
 
     const rule = referralRules[0] || null;
@@ -211,7 +219,7 @@ export class CommissionsService {
     let fixedAmount = rule?.fixedAmount ? Number(rule.fixedAmount) : 0;
 
     let commissionAmount = 0;
-    if (fixedAmount > 0) {
+    if (fixedAmount > 0 && contractRate <= 0) {
       commissionAmount = fixedAmount;
     } else if (rulePercentage > 0) {
       commissionAmount = Math.round(((invoiceTotal * rulePercentage) / 100) * 100) / 100;
@@ -557,19 +565,26 @@ export class CommissionsService {
    * Manager sets/updates service-wise commission rules.
    */
   async setCommissionRule(input: SetCommissionRuleInput) {
+    const category = (input.serviceCategory || 'General').trim();
+    const isReferral = input.type === CommissionType.REFERRAL || category.toLowerCase() === 'general' || category.toLowerCase() === 'referral';
+    const ruleType = isReferral ? CommissionType.REFERRAL : (input.type || CommissionType.SERVICE);
+
     const existing = await prisma.commissionRule.findFirst({
       where: {
-        type: CommissionType.SERVICE,
-        serviceCategory: input.serviceCategory.trim(),
+        serviceCategory: category,
       },
     });
+
+    const percentageNum = input.percentage != null ? Number(input.percentage) : 0;
+    const fixedAmountNum = input.fixedAmount != null && Number(input.fixedAmount) > 0 ? Number(input.fixedAmount) : null;
 
     if (existing) {
       return prisma.commissionRule.update({
         where: { id: existing.id },
         data: {
-          percentage: new Prisma.Decimal(input.percentage),
-          fixedAmount: input.fixedAmount ? new Prisma.Decimal(input.fixedAmount) : null,
+          type: ruleType,
+          percentage: new Prisma.Decimal(percentageNum),
+          fixedAmount: fixedAmountNum != null ? new Prisma.Decimal(fixedAmountNum) : null,
           isActive: true,
         },
       });
@@ -577,10 +592,10 @@ export class CommissionsService {
 
     return prisma.commissionRule.create({
       data: {
-        type: CommissionType.SERVICE,
-        serviceCategory: input.serviceCategory.trim(),
-        percentage: new Prisma.Decimal(input.percentage),
-        fixedAmount: input.fixedAmount ? new Prisma.Decimal(input.fixedAmount) : null,
+        type: ruleType,
+        serviceCategory: category,
+        percentage: new Prisma.Decimal(percentageNum),
+        fixedAmount: fixedAmountNum != null ? new Prisma.Decimal(fixedAmountNum) : null,
         isActive: true,
       },
     });
@@ -588,8 +603,8 @@ export class CommissionsService {
 
   async getCommissionRules() {
     return prisma.commissionRule.findMany({
-      where: { type: CommissionType.SERVICE, isActive: true },
-      orderBy: { serviceCategory: 'asc' },
+      where: { isActive: true },
+      orderBy: { updatedAt: 'desc' },
     });
   }
 

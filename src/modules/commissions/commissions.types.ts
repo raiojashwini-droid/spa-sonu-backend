@@ -1,4 +1,4 @@
-import { CommissionStatus, CommissionActivityType } from '@prisma/client';
+import { CommissionStatus, CommissionActivityType, CommissionType } from '@prisma/client';
 
 export interface CommissionQueryFilter {
   technicianId?: string;
@@ -21,9 +21,10 @@ export interface AdjustCommissionInput {
 }
 
 export interface SetCommissionRuleInput {
-  serviceCategory: string;
-  percentage: number;
-  fixedAmount?: number;
+  serviceCategory?: string;
+  percentage?: number;
+  fixedAmount?: number | null;
+  type?: CommissionType;
 }
 
 export interface AuthContextUser {

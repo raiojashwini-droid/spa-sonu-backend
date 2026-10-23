@@ -22,7 +22,8 @@ export const adjustCommissionSchema = z.object({
 });
 
 export const setCommissionRuleSchema = z.object({
-  serviceCategory: z.string({ required_error: 'serviceCategory is required' }).min(2),
-  percentage: z.number({ required_error: 'percentage is required' }).positive('percentage must be positive'),
-  fixedAmount: z.number().nonnegative().optional(),
+  serviceCategory: z.string().optional().default('General'),
+  percentage: z.number().nonnegative().optional().default(0),
+  fixedAmount: z.number().nonnegative().optional().nullable(),
+  type: z.enum(['SERVICE', 'REFERRAL']).optional(),
 });
