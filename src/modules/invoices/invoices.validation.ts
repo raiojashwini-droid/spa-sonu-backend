@@ -31,10 +31,31 @@ export const createInvoiceSchema = z.preprocess(
           })
         )
         .optional(),
+      services: z
+        .array(
+          z.object({
+            serviceId: z.string().optional().nullable(),
+            name: z.string().optional().nullable(),
+            service: z.string().optional().nullable(),
+            price: z.number().nonnegative(),
+            technicianId: z.string().optional().nullable(),
+            technician: z.string().optional().nullable(),
+            quantity: z.number().int().positive().optional().default(1),
+          })
+        )
+        .optional(),
     })
-    .refine((data) => Boolean(data.appointmentId || (data.retailProducts && data.retailProducts.length > 0)), {
-      message: 'Either appointmentId or at least one retailProduct must be provided',
-    })
+    .refine(
+      (data) =>
+        Boolean(
+          data.appointmentId ||
+            (data.retailProducts && data.retailProducts.length > 0) ||
+            (data.services && data.services.length > 0)
+        ),
+      {
+        message: 'Either appointmentId, retailProducts, or services must be provided',
+      }
+    )
 );
 
 export const addInvoiceItemSchema = z.object({

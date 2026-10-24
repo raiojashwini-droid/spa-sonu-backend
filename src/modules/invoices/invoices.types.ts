@@ -11,6 +11,15 @@ export interface CreateInvoiceInput {
     retailProductId: string;
     quantity: number;
   }[];
+  services?: {
+    serviceId?: string | null;
+    name?: string | null;
+    service?: string | null;
+    price: number;
+    technicianId?: string | null;
+    technician?: string | null;
+    quantity?: number;
+  }[];
 }
 
 export interface AddInvoiceItemInput {

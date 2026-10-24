@@ -15,12 +15,13 @@ import {
 
 export class InvoicesService {
   async createInvoice(data: CreateInvoiceInput, authUser: AuthContextUser) {
-    const isRetailOnly = !data.appointmentId;
+    const hasServices = Boolean(data.services && data.services.length > 0);
+    const isRetailOnly = !data.appointmentId && !hasServices;
     let appointment: any = null;
     let billableServices: any[] = [];
     let subtotal = 0;
 
-    if (!isRetailOnly) {
+    if (data.appointmentId) {
       // 1. Fetch appointment with client and appointmentServices
       appointment = await prisma.appointment.findUnique({
         where: { id: data.appointmentId! },
@@ -70,10 +71,12 @@ export class InvoicesService {
 
       // Calculate subtotal from billable services
       subtotal = billableServices.reduce((sum, s) => sum + Number(s.price), 0);
+    } else if (hasServices) {
+      subtotal = data.services!.reduce((sum, s) => sum + (Number(s.price) || 0) * (s.quantity || 1), 0);
     } else {
       if (!data.retailProducts || data.retailProducts.length === 0) {
         throw new AppError(
-          'Cannot create retail invoice: at least one retail product is required',
+          'Cannot create retail invoice: at least one service or retail product is required',
           HTTP_STATUS.BAD_REQUEST
         );
       }
@@ -193,6 +196,22 @@ export class InvoicesService {
                   name: s.service?.name || 'Spa Service',
                   price: s.price,
                   quantity: 1,
+                },
+              });
+            }
+          } else if (data.services && data.services.length > 0) {
+            // Snapshot direct walk-in service items
+            for (const s of data.services) {
+              await tx.invoiceItem.create({
+                data: {
+                  invoiceId: created.id,
+                  appointmentServiceId: null,
+                  serviceId: s.serviceId || null,
+                  technicianId: s.technicianId || null,
+                  itemType: InvoiceItemType.SERVICE,
+                  name: s.name || s.service || 'Spa Service',
+                  price: Number(s.price || 0),
+                  quantity: s.quantity || 1,
                 },
               });
             }
