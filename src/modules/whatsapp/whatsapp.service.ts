@@ -78,10 +78,14 @@ export class WhatsAppService {
     },
   };
 
+  private hasSeeded = false;
+
   /**
    * Automatically ensure default templates are seeded in database if table is empty.
    */
   async ensureSeededAutomations() {
+    if (this.hasSeeded) return;
+    this.hasSeeded = true;
     // Purge legacy duplicate types from early schema
     await prisma.whatsAppAutomation.deleteMany({
       where: {
@@ -146,19 +150,22 @@ export class WhatsAppService {
 
   /**
    * Update automation configuration (Manager only).
+   * Direct upsert executes in a single database round-trip (~100-200ms).
    */
   async updateAutomation(type: WhatsAppAutomationType, input: UpdateAutomationInput) {
-    await this.ensureSeededAutomations();
-    const existing = await prisma.whatsAppAutomation.findUnique({ where: { type } });
-    if (!existing) {
-      throw new AppError(`Automation setting for ${type} not found`, HTTP_STATUS.NOT_FOUND);
-    }
-
     const activeFlag = input.isActive !== undefined ? input.isActive : input.enabled;
     const timeVal = input.timing !== undefined ? input.timing : input.scheduleTime;
-    const updated = await prisma.whatsAppAutomation.update({
+    const defaultData = this.defaultTemplates[type];
+
+    const updated = await prisma.whatsAppAutomation.upsert({
       where: { type },
-      data: {
+      create: {
+        type,
+        template: input.template !== undefined ? input.template.trim() : (defaultData?.template || ''),
+        isActive: activeFlag !== undefined ? activeFlag : true,
+        timing: timeVal !== undefined ? (timeVal ? timeVal.trim() : null) : (defaultData?.timing || null),
+      },
+      update: {
         template: input.template !== undefined ? input.template.trim() : undefined,
         isActive: activeFlag !== undefined ? activeFlag : undefined,
         timing: timeVal !== undefined ? (timeVal ? timeVal.trim() : null) : undefined,
