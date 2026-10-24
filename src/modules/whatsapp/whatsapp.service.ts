@@ -36,7 +36,7 @@ export class WhatsAppService {
   /**
    * Default message templates for all 8 automations.
    */
-  private readonly defaultTemplates: Record<WhatsAppAutomationType, { template: string; timing: string }> = {
+  private readonly defaultTemplates: Partial<Record<WhatsAppAutomationType, { template: string; timing: string }>> = {
     BIRTHDAY: {
       template: 'Happy Birthday {clientName}! Celebrate your special day at OMEGA SPA with {rewardPoints} bonus loyalty points on us. Book your pampering session today!',
       timing: '09:00',
@@ -71,18 +71,6 @@ export class WhatsAppService {
       template: 'OMEGA SPA Daily Close Summary ({todayDate}): Total Revenue: {totalRevenue} FCFA | Clients Served: {clientsServed} | Cash: {cashAmount} FCFA | MoMo: {momoAmount} FCFA | Orange: {orangeAmount} FCFA.',
       timing: '19:30',
     },
-    APPOINTMENT_REMINDER: {
-      template: 'Hello {clientName}, your appointment at OMEGA SPA is confirmed for {appointmentDate} at {appointmentTime}.',
-      timing: '24h',
-    },
-    INVOICE_THANKYOU: {
-      template: 'Thank you {clientName} for your payment of {amount} FCFA for Invoice {invoiceNumber}.',
-      timing: 'immediate',
-    },
-    DAILY_SUMMARY: {
-      template: 'OMEGA SPA Daily Summary ({todayDate}): Total Revenue: {totalRevenue} FCFA.',
-      timing: '19:30',
-    },
     CLIENT_WELCOME: {
       template:
         "Hello {clientName}! 😊 We’d love to welcome you to Omega Spa.\n\nIt’s the perfect time to take a break and treat yourself to some relaxation. ✨ Contact us or book your appointment whenever you're ready.\n\nWe look forward to seeing you soon! 💚",
@@ -94,7 +82,21 @@ export class WhatsAppService {
    * Automatically ensure default templates are seeded in database if table is empty.
    */
   async ensureSeededAutomations() {
+    // Purge legacy duplicate types from early schema
+    await prisma.whatsAppAutomation.deleteMany({
+      where: {
+        type: {
+          in: [
+            'APPOINTMENT_REMINDER' as WhatsAppAutomationType,
+            'INVOICE_THANKYOU' as WhatsAppAutomationType,
+            'DAILY_SUMMARY' as WhatsAppAutomationType,
+          ],
+        },
+      },
+    }).catch(() => {});
+
     for (const [type, data] of Object.entries(this.defaultTemplates)) {
+      if (!data) continue;
       const autoType = type as WhatsAppAutomationType;
       await prisma.whatsAppAutomation.upsert({
         where: { type: autoType },
@@ -110,11 +112,20 @@ export class WhatsAppService {
   }
 
   /**
-   * Get all automation configurations.
+   * Get all automation configurations (strictly the 9 active canonical types).
    */
   async getAutomations() {
     await this.ensureSeededAutomations();
     return prisma.whatsAppAutomation.findMany({
+      where: {
+        type: {
+          notIn: [
+            'APPOINTMENT_REMINDER' as WhatsAppAutomationType,
+            'INVOICE_THANKYOU' as WhatsAppAutomationType,
+            'DAILY_SUMMARY' as WhatsAppAutomationType,
+          ],
+        },
+      },
       orderBy: { createdAt: 'asc' },
     });
   }
