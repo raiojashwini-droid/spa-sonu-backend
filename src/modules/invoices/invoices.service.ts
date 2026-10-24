@@ -450,9 +450,9 @@ export class InvoicesService {
       const s = query.search.trim();
       conditions.push({
         OR: [
-          { invoiceNumber: { contains: s, mode: 'insensitive' } },
-          { client: { name: { contains: s, mode: 'insensitive' } } },
-          { client: { phone: { contains: s, mode: 'insensitive' } } },
+          { invoiceNumber: { contains: s } },
+          { client: { name: { contains: s } } },
+          { client: { phone: { contains: s } } },
         ],
       });
     }
