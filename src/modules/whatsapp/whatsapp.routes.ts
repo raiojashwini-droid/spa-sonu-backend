@@ -109,4 +109,14 @@ router.patch('/settings/retention', allowRoles('MANAGER'), (req, res, next) =>
   whatsappController.updateRetentionSettings(req, res, next)
 );
 
+// GET /api/v1/whatsapp/settings/boss-phone - View configured Boss WhatsApp phone (Manager, Reception)
+router.get('/settings/boss-phone', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+  whatsappController.getBossPhone(req, res, next)
+);
+
+// POST /api/v1/whatsapp/settings/boss-phone - Update configured Boss WhatsApp phone (Manager only)
+router.post('/settings/boss-phone', allowRoles('MANAGER'), (req, res, next) =>
+  whatsappController.updateBossPhone(req, res, next)
+);
+
 export default router;

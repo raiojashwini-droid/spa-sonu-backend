@@ -206,11 +206,13 @@ export function initWhatsAppScheduler(): void {
     async () => {
       const todayStr = new Date().toISOString().split('T')[0];
       const systemAuthUser = { id: 'system', role: 'MANAGER', email: 'system@omegaspa.com' };
+      const bossPhone = whatsappService.getBossPhoneNumber();
       const result = await whatsappService.triggerDailyCloseBoss(
-        { businessDate: todayStr },
+        { businessDate: todayStr, recipientPhone: bossPhone },
         systemAuthUser
       );
-      logger.info('[WhatsApp Scheduler] Daily close summary dispatched', {
+      logger.info('[WhatsApp Scheduler] Daily close summary dispatched to Boss', {
+        bossPhone,
         alreadySent: result.alreadySent,
         logId: result.log?.id,
       });

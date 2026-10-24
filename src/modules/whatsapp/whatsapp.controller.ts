@@ -284,6 +284,35 @@ export class WhatsAppController {
     }
   }
 
+  async getBossPhone(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const phone = whatsappService.getBossPhoneNumber();
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        data: { bossPhone: phone },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateBossPhone(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const phoneInput = req.body.bossPhone || req.body.phone;
+      if (!phoneInput || typeof phoneInput !== 'string' || !phoneInput.trim()) {
+        throw new AppError('Valid boss phone number is required', HTTP_STATUS.BAD_REQUEST);
+      }
+      const savedPhone = await whatsappService.setBossPhoneNumber(phoneInput.trim());
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: `Boss WhatsApp phone number updated to ${savedPhone}`,
+        data: { bossPhone: savedPhone },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async handleWebhook(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await whatsappService.handleWebhook(req.body);

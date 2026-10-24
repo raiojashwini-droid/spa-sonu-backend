@@ -864,13 +864,14 @@ export class WhatsAppService {
   async triggerDailyCloseBoss(input: DailyCloseTriggerInput, authUser: AuthContextUser) {
     const now = new Date();
     const businessDate = input.businessDate || input.date || now.toISOString().split('T')[0];
-    const event = await notificationEventBuilder.buildDailyCloseEvent(businessDate, authUser.id, input.recipientPhone);
+    const targetRecipientPhone = input.recipientPhone || this.getBossPhoneNumber();
+    const event = await notificationEventBuilder.buildDailyCloseEvent(businessDate, authUser.id, targetRecipientPhone);
 
     const setting = await this.getAutomationByType(WhatsAppAutomationType.DAILY_CLOSE_BOSS);
     const message = this.compileTemplate(setting.template, event.placeholders);
 
     return this.dispatchMessage({
-      recipientPhone: event.recipient.phone || '',
+      recipientPhone: event.recipient.phone || targetRecipientPhone,
       message,
       idempotencyKey: event.idempotencyKey,
       automationType: WhatsAppAutomationType.DAILY_CLOSE_BOSS,
@@ -1130,6 +1131,53 @@ export class WhatsAppService {
       logger.warn('[WhatsApp Service] Could not write retention file', { error: e?.message });
     }
     return safeDays;
+  }
+
+  private bossPhoneFilePath = path.join(process.cwd(), 'whatsapp_boss_phone.json');
+
+  getBossPhoneNumber(): string {
+    try {
+      if (fs.existsSync(this.bossPhoneFilePath)) {
+        const raw = fs.readFileSync(this.bossPhoneFilePath, 'utf8');
+        const data = JSON.parse(raw);
+        if (data.bossPhone && typeof data.bossPhone === 'string' && data.bossPhone.trim()) {
+          return data.bossPhone.trim();
+        }
+      }
+    } catch (e) {
+      // fallback
+    }
+    return '+237676761349';
+  }
+
+  async setBossPhoneNumber(phone: string): Promise<string> {
+    const cleanPhone = phone.trim();
+    try {
+      fs.writeFileSync(
+        this.bossPhoneFilePath,
+        JSON.stringify({ bossPhone: cleanPhone, updatedAt: new Date().toISOString() }),
+        'utf8'
+      );
+    } catch (e: any) {
+      logger.warn('[WhatsApp Service] Could not write boss phone file', { error: e?.message });
+    }
+
+    try {
+      const managerUser = await prisma.user.findFirst({
+        where: { role: { name: 'MANAGER' } },
+        include: { staffProfile: true },
+      });
+      if (managerUser?.staffProfile) {
+        await prisma.staffProfile.update({
+          where: { id: managerUser.staffProfile.id },
+          data: { phone: cleanPhone },
+        });
+      }
+    } catch (e: any) {
+      logger.warn('[WhatsApp Service] Note: Could not sync boss phone to manager profile in DB:', e?.message || e);
+    }
+
+    return cleanPhone;
   }
 
   /**

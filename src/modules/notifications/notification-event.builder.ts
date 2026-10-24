@@ -437,18 +437,46 @@ export class NotificationEventBuilder {
       },
     });
 
-    const managerProfile = await prisma.staffProfile.findUnique({
-      where: { userId: authUserId },
-    });
-    const recipientPhone = recipientPhoneOverride || managerProfile?.phone || '+237670000001';
+    let recipientPhone: string | undefined = recipientPhoneOverride;
+
+    if (!recipientPhone) {
+      try {
+        const { whatsappService } = require('../whatsapp/whatsapp.service');
+        const phone = whatsappService.getBossPhoneNumber();
+        if (phone) recipientPhone = phone;
+      } catch (e) {}
+    }
+
+    let managerName = 'Manager';
+    if (authUserId && authUserId !== 'system') {
+      const managerProfile = await prisma.staffProfile.findUnique({
+        where: { userId: authUserId },
+      });
+      if (managerProfile?.name) managerName = managerProfile.name;
+      if (!recipientPhone && managerProfile?.phone) {
+        recipientPhone = managerProfile.phone;
+      }
+    }
+
+    if (!recipientPhone) {
+      try {
+        const managerUser = await prisma.user.findFirst({
+          where: { role: { name: 'MANAGER' }, isActive: true },
+          include: { staffProfile: true },
+        });
+        recipientPhone = managerUser?.staffProfile?.phone || managerUser?.phone || undefined;
+      } catch (e) {}
+    }
+
+    const finalPhone = recipientPhone || '+237676761349';
     const idempotencyKey = `daily-close:${businessDate}`;
 
     return {
       eventType: 'DAILY_CLOSE_BOSS',
       idempotencyKey,
       recipient: {
-        name: managerProfile?.name || 'Manager',
-        phone: recipientPhone,
+        name: managerName,
+        phone: finalPhone,
       },
       placeholders: {
         todayDate: businessDate,
