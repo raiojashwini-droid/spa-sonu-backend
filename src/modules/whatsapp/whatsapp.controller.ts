@@ -112,6 +112,23 @@ export class WhatsAppController {
     }
   }
 
+  async triggerClientWelcome(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const clientId = req.body.clientId;
+      if (!clientId) {
+        throw new AppError('clientId is required', HTTP_STATUS.BAD_REQUEST);
+      }
+      const result = await whatsappService.triggerClientWelcome(clientId);
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: result.alreadySent ? 'Welcome message was already sent to this client' : 'Welcome message dispatched to client',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async triggerAfterService(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { appointmentId } = req.body;

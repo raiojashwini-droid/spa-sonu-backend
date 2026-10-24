@@ -79,6 +79,11 @@ router.post('/triggers/daily-close', allowRoles('MANAGER'), (req, res, next) =>
   whatsappController.triggerDailyClose(req, res, next)
 );
 
+// POST /api/v1/whatsapp/triggers/client-welcome - Welcome message trigger (Manager, Reception)
+router.post('/triggers/client-welcome', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+  whatsappController.triggerClientWelcome(req, res, next)
+);
+
 // POST /api/v1/whatsapp/triggers/send - Dispatch single custom message with idempotency (Manager, Reception)
 router.post('/triggers/send', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
   whatsappController.sendCustom(req, res, next)

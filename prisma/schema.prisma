@@ -151,6 +151,7 @@ enum WhatsAppAutomationType {
   REBOOKING
   DAILY_SUMMARY
   DAILY_CLOSE_BOSS
+  CLIENT_WELCOME
 }
 
 enum WhatsAppMessageStatus {

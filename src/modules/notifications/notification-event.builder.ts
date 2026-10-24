@@ -19,6 +19,10 @@ export class NotificationEventBuilder {
       const reg = new RegExp(`\\{${key}\\}`, 'g');
       message = message.replace(reg, String(value));
     }
+    if (placeholders.clientName !== undefined) {
+      message = message.replace(/\{\{1\}\}/g, String(placeholders.clientName));
+      message = message.replace(/\{1\}/g, String(placeholders.clientName));
+    }
     return message;
   }
 

@@ -140,6 +140,16 @@ export class ClientsService {
       },
     });
 
+    // 5. Trigger automated Welcome Message via WhatsApp immediately
+    try {
+      const { whatsappService } = require('../whatsapp/whatsapp.service');
+      whatsappService.triggerClientWelcome(client.id).catch((err: any) => {
+        console.warn('[ClientsService] Note: Welcome WhatsApp message could not be sent:', err?.message || err);
+      });
+    } catch (e: any) {
+      // Non-blocking background dispatch
+    }
+
     return client;
   }
 

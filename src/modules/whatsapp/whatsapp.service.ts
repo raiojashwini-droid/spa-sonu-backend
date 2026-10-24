@@ -83,6 +83,11 @@ export class WhatsAppService {
       template: 'OMEGA SPA Daily Summary ({todayDate}): Total Revenue: {totalRevenue} FCFA.',
       timing: '19:30',
     },
+    CLIENT_WELCOME: {
+      template:
+        "Hello {clientName}! 😊 We’d love to welcome you to Omega Spa.\n\nIt’s the perfect time to take a break and treat yourself to some relaxation. ✨ Contact us or book your appointment whenever you're ready.\n\nWe look forward to seeing you soon! 💚",
+      timing: 'immediate',
+    },
   };
 
   /**
@@ -1015,7 +1020,41 @@ export class WhatsAppService {
   }
 
   /**
-   * 9. Custom / Direct templated dispatch
+   * 9. Instant New Client Welcome — triggered automatically when a new client is added to the system.
+   */
+  async triggerClientWelcome(clientId: string) {
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
+    });
+
+    if (!client) {
+      return { alreadySent: false, log: null, error: 'Client not found' };
+    }
+
+    const phone = client.phone || client.whatsapp;
+    if (!phone || !phone.trim()) {
+      return { alreadySent: false, log: null, error: 'Client has no phone number' };
+    }
+
+    const clientName = client.name ? client.name.trim() : 'Valued Guest';
+    const setting = await this.getAutomationByType(WhatsAppAutomationType.CLIENT_WELCOME);
+    const message = this.compileTemplate(setting.template, { clientName });
+    const idempotencyKey = `client-welcome:${clientId}`;
+
+    return this.dispatchMessage({
+      recipientPhone: phone.trim(),
+      message,
+      idempotencyKey,
+      automationType: WhatsAppAutomationType.CLIENT_WELCOME,
+      clientId: client.id,
+      templateName: 'client_welcome',
+      templateLanguage: 'en',
+      templateVariables: [clientName],
+    });
+  }
+
+  /**
+   * 10. Custom / Direct templated dispatch
    */
   async sendCustomMessage(input: SendCustomMessageInput) {
     const idempotencyKey = input.idempotencyKey || `custom:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`;
