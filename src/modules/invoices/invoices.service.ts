@@ -207,7 +207,7 @@ export class InvoicesService {
                   invoiceId: created.id,
                   appointmentServiceId: null,
                   serviceId: s.serviceId || null,
-                  technicianId: s.technicianId || null,
+                  technicianId: s.technicianId || (String(authUser?.role).toUpperCase() === 'TECHNICIAN' ? authUser.id : null),
                   itemType: InvoiceItemType.SERVICE,
                   name: s.name || s.service || 'Spa Service',
                   price: Number(s.price || 0),
