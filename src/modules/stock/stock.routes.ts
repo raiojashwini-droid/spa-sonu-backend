@@ -13,7 +13,7 @@ router.get('/activity', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, 
 );
 
 // GET /api/v1/stock/retail — View retail products and stock
-router.get('/retail', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+router.get('/retail', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'), (req, res, next) =>
   stockController.getRetailStock(req, res, next)
 );
 
