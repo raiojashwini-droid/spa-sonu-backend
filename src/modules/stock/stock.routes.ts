@@ -47,6 +47,28 @@ router.post('/', allowRoles('MANAGER'), (req, res, next) =>
   stockController.createServiceStock(req, res, next)
 );
 
+// ── Daily Stock Photo Audits ─────────────────────────────────────────
+
+// POST /api/v1/stock/daily-audit — Technician or staff submits end-of-day stock photo + remarks
+router.post('/daily-audit', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
+  stockController.submitDailyAudit(req, res, next)
+);
+
+// GET /api/v1/stock/daily-audit — View daily stock photo audits with filters
+router.get('/daily-audit', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
+  stockController.getDailyAudits(req, res, next)
+);
+
+// PATCH /api/v1/stock/daily-audit/:id/review — Manager/Reception review audit
+router.patch('/daily-audit/:id/review', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+  stockController.reviewDailyAudit(req, res, next)
+);
+
+// DELETE /api/v1/stock/daily-audit/:id — Delete daily stock audit
+router.delete('/daily-audit/:id', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
+  stockController.deleteDailyAudit(req, res, next)
+);
+
 // GET /api/v1/stock/:id — View single stock item
 router.get('/:id', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
   stockController.getStockById(req, res, next)

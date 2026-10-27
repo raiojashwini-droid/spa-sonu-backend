@@ -59,3 +59,27 @@ export interface AuthContextUser {
   id: string;
   role: string;
 }
+
+export interface CreateDailyAuditInput {
+  serviceStockId?: string | null;
+  productName: string;
+  photoUrl: string;
+  publicId?: string | null;
+  remarks?: string | null;
+  estimatedRemaining?: string | null;
+  date?: string;
+}
+
+export interface StockDailyAuditQueryFilter {
+  date?: string;
+  technicianId?: string;
+  serviceStockId?: string;
+  status?: string;
+  page?: number | string;
+  limit?: number | string;
+}
+
+export interface ReviewDailyAuditInput {
+  status: 'REVIEWED' | 'FLAGGED';
+  reviewNotes?: string | null;
+}

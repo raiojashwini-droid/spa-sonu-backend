@@ -12,6 +12,9 @@ import {
   RefillRetailInput,
   DeductRetailStockInput,
   AuthContextUser,
+  CreateDailyAuditInput,
+  StockDailyAuditQueryFilter,
+  ReviewDailyAuditInput,
 } from './stock.types';
 
 export class StockService {
@@ -493,6 +496,219 @@ export class StockService {
     });
 
     return { success: true, message: 'Retail product deleted successfully' };
+  }
+
+  // ── Daily Stock Photo Audits ─────────────────────────────────────────
+
+  async submitDailyAudit(input: CreateDailyAuditInput, user: AuthContextUser) {
+    const todayStr =
+      input.date ||
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Douala',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+
+    const auditDate = new Date(`${todayStr}T00:00:00.000Z`);
+
+    // Verify serviceStockId if provided
+    let linkedStockId: string | null = null;
+    let finalProductName = input.productName.trim();
+
+    if (input.serviceStockId) {
+      const stockItem = await prisma.serviceStock.findUnique({
+        where: { id: input.serviceStockId },
+      });
+      if (stockItem) {
+        linkedStockId = stockItem.id;
+        finalProductName = stockItem.name;
+      }
+    }
+
+    const audit = await prisma.serviceStockDailyAudit.create({
+      data: {
+        serviceStockId: linkedStockId,
+        productName: finalProductName,
+        photoUrl: input.photoUrl,
+        publicId: input.publicId || null,
+        remarks: input.remarks ? input.remarks.trim() : null,
+        estimatedRemaining: input.estimatedRemaining ? input.estimatedRemaining.trim() : null,
+        technicianId: user.id,
+        date: auditDate,
+        status: 'PENDING',
+      },
+      include: {
+        technician: {
+          select: {
+            id: true,
+            email: true,
+            staffProfile: {
+              select: { name: true },
+            },
+          },
+        },
+        serviceStock: {
+          select: {
+            id: true,
+            name: true,
+            unit: true,
+            quantity: true,
+            category: true,
+          },
+        },
+      },
+    });
+
+    return {
+      ...audit,
+      technicianName: audit.technician.staffProfile?.name || audit.technician.email,
+    };
+  }
+
+  async getDailyAudits(query: StockDailyAuditQueryFilter, user: AuthContextUser) {
+    const page = Math.max(1, parseInt(String(query.page || 1), 10));
+    const limit = Math.max(1, Math.min(100, parseInt(String(query.limit || 50), 10)));
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.ServiceStockDailyAuditWhereInput = {};
+
+    // Filter by date
+    if (query.date) {
+      where.date = new Date(`${query.date}T00:00:00.000Z`);
+    }
+
+    // Role-based visibility:
+    // Technicians can see all stock photos or their own; default to showing all so they can collaborate,
+    // or if technicianId filter is explicitly requested.
+    if (query.technicianId) {
+      where.technicianId = query.technicianId;
+    }
+
+    if (query.serviceStockId) {
+      where.serviceStockId = query.serviceStockId;
+    }
+
+    if (query.status) {
+      where.status = query.status.toUpperCase();
+    }
+
+    const [total, items] = await Promise.all([
+      prisma.serviceStockDailyAudit.count({ where }),
+      prisma.serviceStockDailyAudit.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          technician: {
+            select: {
+              id: true,
+              email: true,
+              staffProfile: {
+                select: { name: true },
+              },
+            },
+          },
+          reviewedBy: {
+            select: {
+              id: true,
+              email: true,
+              staffProfile: {
+                select: { name: true },
+              },
+            },
+          },
+          serviceStock: {
+            select: {
+              id: true,
+              name: true,
+              unit: true,
+              quantity: true,
+              category: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      audits: items.map((a) => ({
+        ...a,
+        technicianName: a.technician?.staffProfile?.name || a.technician?.email || 'Technician',
+        reviewedByName: a.reviewedBy?.staffProfile?.name || a.reviewedBy?.email || null,
+        stockQuantity: a.serviceStock ? Number(a.serviceStock.quantity) : null,
+      })),
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async reviewDailyAudit(id: string, input: ReviewDailyAuditInput, user: AuthContextUser) {
+    const existing = await prisma.serviceStockDailyAudit.findUnique({ where: { id } });
+    if (!existing) {
+      throw new AppError('Stock audit record not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const updated = await prisma.serviceStockDailyAudit.update({
+      where: { id },
+      data: {
+        status: input.status,
+        reviewNotes: input.reviewNotes ? input.reviewNotes.trim() : null,
+        reviewedById: user.id,
+        reviewedAt: new Date(),
+      },
+      include: {
+        technician: {
+          select: {
+            id: true,
+            email: true,
+            staffProfile: { select: { name: true } },
+          },
+        },
+        reviewedBy: {
+          select: {
+            id: true,
+            email: true,
+            staffProfile: { select: { name: true } },
+          },
+        },
+        serviceStock: {
+          select: {
+            id: true,
+            name: true,
+            unit: true,
+            quantity: true,
+          },
+        },
+      },
+    });
+
+    return {
+      ...updated,
+      technicianName: updated.technician?.staffProfile?.name || updated.technician?.email,
+      reviewedByName: updated.reviewedBy?.staffProfile?.name || updated.reviewedBy?.email,
+    };
+  }
+
+  async deleteDailyAudit(id: string, user: AuthContextUser) {
+    const existing = await prisma.serviceStockDailyAudit.findUnique({ where: { id } });
+    if (!existing) {
+      throw new AppError('Stock audit record not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    // Only manager, reception, or original technician can delete
+    const roleUpper = (user.role || '').toUpperCase();
+    if (roleUpper !== 'MANAGER' && roleUpper !== 'RECEPTION' && existing.technicianId !== user.id) {
+      throw new AppError('Not authorized to delete this stock audit', HTTP_STATUS.FORBIDDEN);
+    }
+
+    await prisma.serviceStockDailyAudit.delete({ where: { id } });
+    return { success: true, message: 'Stock audit record deleted successfully' };
   }
 }
 

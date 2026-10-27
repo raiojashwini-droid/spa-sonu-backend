@@ -65,3 +65,27 @@ export const deductRetailStockSchema = z.object({
     })
   ).min(1, 'At least one item required'),
 });
+
+export const createDailyAuditSchema = z.object({
+  serviceStockId: z.string().optional().nullable(),
+  productName: z.string({ required_error: 'Product name is required' }).min(2, 'Product name must be at least 2 characters'),
+  photoUrl: z.string({ required_error: 'Photo is required' }).min(5, 'Valid photo URL is required'),
+  publicId: z.string().optional().nullable(),
+  remarks: z.string().optional().nullable(),
+  estimatedRemaining: z.string().optional().nullable(),
+  date: z.string().optional(),
+});
+
+export const stockDailyAuditQuerySchema = z.object({
+  date: z.string().optional(),
+  technicianId: z.string().optional(),
+  serviceStockId: z.string().optional(),
+  status: z.string().optional(),
+  page: z.union([z.string(), z.number()]).optional(),
+  limit: z.union([z.string(), z.number()]).optional(),
+});
+
+export const reviewDailyAuditSchema = z.object({
+  status: z.enum(['REVIEWED', 'FLAGGED']),
+  reviewNotes: z.string().optional().nullable(),
+});

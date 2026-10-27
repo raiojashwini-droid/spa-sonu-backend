@@ -223,6 +223,8 @@ model User {
   recordedPenalties             StaffPenalty[]         @relation("PenaltyRecordedBy")
   monthlyPayrolls               MonthlyPayrollRecord[] @relation("EmployeeMonthlyPayroll")
   createdJobSeekers             JobSeeker[]          @relation("JobSeekersCreatedBy")
+  technicianStockAudits         ServiceStockDailyAudit[] @relation("TechnicianDailyStockAudits")
+  reviewedStockAudits           ServiceStockDailyAudit[] @relation("ReviewedDailyStockAudits")
 
   @@index([roleId])
 }
@@ -465,6 +467,7 @@ model ServiceStock {
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   activities StockActivity[]
+  dailyAudits ServiceStockDailyAudit[]
 
   @@index([name])
   @@index([category])
@@ -488,6 +491,33 @@ model StockActivity {
   @@index([createdById])
   @@index([createdAt])
 }
+
+model ServiceStockDailyAudit {
+  id                 String        @id @default(uuid())
+  serviceStockId     String?
+  serviceStock       ServiceStock? @relation(fields: [serviceStockId], references: [id], onDelete: SetNull)
+  productName        String
+  photoUrl           String        @db.Text
+  publicId           String?
+  remarks            String?       @db.Text
+  estimatedRemaining String?
+  technicianId       String
+  technician         User          @relation("TechnicianDailyStockAudits", fields: [technicianId], references: [id], onDelete: Restrict)
+  date               DateTime      @db.Date
+  status             String        @default("PENDING")
+  reviewedById       String?
+  reviewedBy         User?         @relation("ReviewedDailyStockAudits", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewNotes        String?       @db.Text
+  reviewedAt         DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([technicianId])
+  @@index([date])
+  @@index([serviceStockId])
+  @@index([status])
+}
+
 
 model RetailProduct {
   id           String         @id @default(uuid())

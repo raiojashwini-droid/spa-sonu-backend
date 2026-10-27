@@ -10,6 +10,9 @@ import {
   updateRetailProductSchema,
   refillRetailSchema,
   deductRetailStockSchema,
+  createDailyAuditSchema,
+  stockDailyAuditQuerySchema,
+  reviewDailyAuditSchema,
 } from './stock.validation';
 import { HTTP_STATUS } from '../../config/constants';
 import { AuthContextUser } from './stock.types';
@@ -209,6 +212,67 @@ export class StockController {
     try {
       const id = getParamId(req, 'id');
       const result = await stockService.deleteRetailProduct(id);
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ── Daily Stock Photo Audits ─────────────────────────────────────────
+
+  async submitDailyAudit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const validated = createDailyAuditSchema.parse(req.body);
+      const authUser = (req as any).user as AuthContextUser;
+      const result = await stockService.submitDailyAudit(validated, authUser);
+      res.status(HTTP_STATUS.CREATED).json({
+        success: true,
+        message: 'Daily stock photo audit recorded successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getDailyAudits(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = stockDailyAuditQuerySchema.parse(req.query);
+      const authUser = (req as any).user as AuthContextUser;
+      const result = await stockService.getDailyAudits(query, authUser);
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async reviewDailyAudit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = getParamId(req, 'id');
+      const validated = reviewDailyAuditSchema.parse(req.body);
+      const authUser = (req as any).user as AuthContextUser;
+      const result = await stockService.reviewDailyAudit(id, validated, authUser);
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: 'Daily stock audit reviewed successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteDailyAudit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = getParamId(req, 'id');
+      const authUser = (req as any).user as AuthContextUser;
+      const result = await stockService.deleteDailyAudit(id, authUser);
       res.status(HTTP_STATUS.OK).json({
         success: true,
         message: result.message,
