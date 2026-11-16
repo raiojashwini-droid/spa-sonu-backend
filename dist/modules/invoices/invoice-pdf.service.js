@@ -61,13 +61,31 @@ class InvoicePdfService {
                 .join(' + ');
         }
         else if (payments.length === 1) {
-            const pm = String(payments[0].paymentMethod).toUpperCase().replace(/-/g, '_');
-            if (pm.includes('ORANGE'))
-                paymentMethodDisplay = 'ORANGE MONEY';
-            else if (pm.includes('MTN') || pm.includes('MOMO'))
-                paymentMethodDisplay = 'MTN MOMO';
-            else
-                paymentMethodDisplay = pm.replace(/_/g, ' ');
+            const p0 = payments[0];
+            if (p0.notes && (p0.notes.includes('+') || p0.notes.toLowerCase().includes('split payment:'))) {
+                const cleaned = p0.notes.replace(/^Split payment:\s*/i, '').trim();
+                if (cleaned.includes('+') || cleaned.includes(':')) {
+                    paymentMethodDisplay = cleaned;
+                }
+                else {
+                    const pm = String(p0.paymentMethod).toUpperCase().replace(/-/g, '_');
+                    if (pm.includes('ORANGE'))
+                        paymentMethodDisplay = 'ORANGE MONEY';
+                    else if (pm.includes('MTN') || pm.includes('MOMO'))
+                        paymentMethodDisplay = 'MTN MOMO';
+                    else
+                        paymentMethodDisplay = pm.replace(/_/g, ' ');
+                }
+            }
+            else {
+                const pm = String(p0.paymentMethod).toUpperCase().replace(/-/g, '_');
+                if (pm.includes('ORANGE'))
+                    paymentMethodDisplay = 'ORANGE MONEY';
+                else if (pm.includes('MTN') || pm.includes('MOMO'))
+                    paymentMethodDisplay = 'MTN MOMO';
+                else
+                    paymentMethodDisplay = pm.replace(/_/g, ' ');
+            }
         }
         const paidDate = lastPayment?.paidAt || invoice.createdAt;
         const dateStr = new Date(paidDate).toLocaleDateString('en-GB', {

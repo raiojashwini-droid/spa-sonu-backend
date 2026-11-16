@@ -367,6 +367,11 @@ export class InvoicesService {
 
           // If status is PAID, create payment record(s) (supports split payments & single payment)
           if (invoiceStatus === InvoiceStatus.PAID) {
+            // Delete any existing payments for this invoice to prevent duplicates or stale single payment
+            await tx.payment.deleteMany({
+              where: { invoiceId: created.id },
+            });
+
             if (data.payments && data.payments.length > 0) {
               for (const p of data.payments) {
                 if (Number(p.amount) > 0) {
@@ -810,8 +815,28 @@ export class InvoicesService {
     const formatted = invoices.map((inv) => {
       const paidAmount = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const remainingAmount = Math.max(0, Number(inv.total) - paidAmount);
+
+      let paymentMethodDisplay = 'CASH';
+      if (inv.payments && inv.payments.length > 1) {
+        paymentMethodDisplay = inv.payments
+          .map((p) => {
+            const raw = String(p.paymentMethod || '').replace(/_/g, ' ');
+            const label = raw.includes('ORANGE') ? 'ORANGE MONEY' : raw.includes('MTN') || raw.includes('MOMO') ? 'MTN MOMO' : 'CASH';
+            return `${label} (${Number(p.amount || 0).toLocaleString('en-US')})`;
+          })
+          .join(' + ');
+      } else if (inv.payments && inv.payments.length === 1) {
+        const p0 = inv.payments[0];
+        if (p0.notes && (p0.notes.includes('+') || p0.notes.toLowerCase().includes('split payment:'))) {
+          paymentMethodDisplay = p0.notes.replace(/^Split payment:\s*/i, '').trim();
+        } else {
+          paymentMethodDisplay = String(p0.paymentMethod || 'CASH').replace(/_/g, ' ');
+        }
+      }
+
       return {
         ...inv,
+        paymentMethod: paymentMethodDisplay,
         client: inv.client
           ? {
               ...inv.client,
@@ -914,8 +939,27 @@ export class InvoicesService {
     const paidAmount = invoice.payments.reduce((sum, p) => sum + Number(p.amount), 0);
     const remainingAmount = Math.max(0, Number(invoice.total) - paidAmount);
 
+    let paymentMethodDisplay = 'CASH';
+    if (invoice.payments && invoice.payments.length > 1) {
+      paymentMethodDisplay = invoice.payments
+        .map((p) => {
+          const raw = String(p.paymentMethod || '').replace(/_/g, ' ');
+          const label = raw.includes('ORANGE') ? 'ORANGE MONEY' : raw.includes('MTN') || raw.includes('MOMO') ? 'MTN MOMO' : 'CASH';
+          return `${label} (${Number(p.amount || 0).toLocaleString('en-US')})`;
+        })
+        .join(' + ');
+    } else if (invoice.payments && invoice.payments.length === 1) {
+      const p0 = invoice.payments[0];
+      if (p0.notes && (p0.notes.includes('+') || p0.notes.toLowerCase().includes('split payment:'))) {
+        paymentMethodDisplay = p0.notes.replace(/^Split payment:\s*/i, '').trim();
+      } else {
+        paymentMethodDisplay = String(p0.paymentMethod || 'CASH').replace(/_/g, ' ');
+      }
+    }
+
     return {
       ...invoice,
+      paymentMethod: paymentMethodDisplay,
       client: invoice.client
         ? {
             ...invoice.client,

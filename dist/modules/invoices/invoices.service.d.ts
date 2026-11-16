@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { CreateInvoiceInput, AddInvoiceItemInput, UpdateInvoiceInput, InvoiceQueryFilter, AuthContextUser } from './invoices.types';
 export declare class InvoicesService {
     createInvoice(data: CreateInvoiceInput, authUser: AuthContextUser): Promise<{
+        paymentMethod: string;
         client: {
             loyaltyPoints: number;
             id: string;
@@ -119,6 +120,7 @@ export declare class InvoicesService {
     ensureMissingWalkInInvoices(): Promise<void>;
     getInvoices(query: InvoiceQueryFilter, authUser?: AuthContextUser): Promise<{
         invoices: {
+            paymentMethod: string;
             client: {
                 loyaltyPoints: number;
                 id: string;
@@ -213,6 +215,7 @@ export declare class InvoicesService {
     }>;
     getPendingInvoices(authUser?: AuthContextUser): Promise<{
         invoices: {
+            paymentMethod: string;
             client: {
                 loyaltyPoints: number;
                 id: string;
@@ -306,6 +309,7 @@ export declare class InvoicesService {
         };
     }>;
     getInvoiceById(id: string, authUser?: AuthContextUser): Promise<{
+        paymentMethod: string;
         client: {
             loyaltyPoints: number;
             id: string;
@@ -401,6 +405,7 @@ export declare class InvoicesService {
         pointsRedeemed: number;
     }>;
     updateInvoice(id: string, data: UpdateInvoiceInput, authUser: AuthContextUser): Promise<{
+        paymentMethod: string;
         client: {
             loyaltyPoints: number;
             id: string;
