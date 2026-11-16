@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const dateRangeQuerySchema = z.object({
-  period: z.enum(['today', 'weekly', 'monthly', 'custom']).optional(),
+  period: z.enum(['today', 'weekly', 'monthly', 'custom', '7d', '30d']).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
 });

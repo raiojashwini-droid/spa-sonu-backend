@@ -20,6 +20,8 @@ interface EnvConfig {
   INSTAGRAM_ACCOUNT_ID: string;
   TIKTOK_ACCESS_TOKEN: string;
   TIKTOK_BUSINESS_ID: string;
+  OPENAI_API_KEY: string;
+  OPENAI_MODEL: string;
 }
 
 function getEnvVariable(key: string, required: boolean = true): string {
@@ -48,6 +50,8 @@ export const env: EnvConfig = {
   INSTAGRAM_ACCOUNT_ID: getEnvVariable('INSTAGRAM_ACCOUNT_ID', false),
   TIKTOK_ACCESS_TOKEN: getEnvVariable('TIKTOK_ACCESS_TOKEN', false),
   TIKTOK_BUSINESS_ID: getEnvVariable('TIKTOK_BUSINESS_ID', false),
+  OPENAI_API_KEY: getEnvVariable('OPENAI_API_KEY', false),
+  OPENAI_MODEL: getEnvVariable('OPENAI_MODEL', false) || 'gpt-4o-mini',
 };
 
 // Production readiness checks

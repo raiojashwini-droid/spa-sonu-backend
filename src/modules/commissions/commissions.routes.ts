@@ -46,6 +46,20 @@ router.post(
   (req, res, next) => commissionsController.finalizePayroll(req, res, next)
 );
 
+// GET /api/v1/commissions/marketer/performance — Marketer performance & commission ledger (Manager, Marketer)
+router.get(
+  '/marketer/performance',
+  allowRoles('MANAGER', 'MARKETER'),
+  (req, res, next) => commissionsController.getMarketerPerformance(req, res, next)
+);
+
+// GET /api/v1/commissions/marketer/:marketerId — Specific marketer performance by ID (Manager only)
+router.get(
+  '/marketer/:marketerId',
+  allowRoles('MANAGER'),
+  (req, res, next) => commissionsController.getMarketerPerformance(req, res, next)
+);
+
 // GET /api/v1/commissions/:technicianId — Technician / Marketer report (Manager, Reception, or own Technician/Marketer)
 router.get('/:technicianId', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER'), (req, res, next) =>
   commissionsController.getTechnicianCommissions(req, res, next)

@@ -54,13 +54,18 @@ router.post('/triggers/payment-confirmation', allowRoles('MANAGER', 'RECEPTION')
   whatsappController.triggerPaymentConfirmation(req, res, next)
 );
 
-// POST /api/v1/whatsapp/triggers/send-invoice-pdf - Send official PDF Receipt via WhatsApp (Manager, Reception)
-router.post('/triggers/send-invoice-pdf', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+// POST /api/v1/whatsapp/triggers/send-invoice-pdf - Send official PDF Receipt via WhatsApp (Manager, Reception, Technician)
+router.post('/triggers/send-invoice-pdf', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
   whatsappController.sendInvoicePdf(req, res, next)
 );
 
-// GET /api/v1/whatsapp/invoices/:id/receipt-status - Check if receipt was already sent (Manager, Reception)
-router.get('/invoices/:id/receipt-status', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+// POST /api/v1/whatsapp/triggers/send-invoice-feedback - Send feedback link via WhatsApp (Manager, Reception, Technician)
+router.post('/triggers/send-invoice-feedback', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
+  whatsappController.sendInvoiceFeedback(req, res, next)
+);
+
+// GET /api/v1/whatsapp/invoices/:id/receipt-status - Check if receipt was already sent (Manager, Reception, Technician)
+router.get('/invoices/:id/receipt-status', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
   whatsappController.getInvoiceReceiptStatus(req, res, next)
 );
 
@@ -74,8 +79,8 @@ router.post('/triggers/rebooking-reminders', allowRoles('MANAGER', 'RECEPTION'),
   whatsappController.triggerRebookingReminders(req, res, next)
 );
 
-// POST /api/v1/whatsapp/triggers/daily-close - Trigger Daily Close summary to Boss (Manager only)
-router.post('/triggers/daily-close', allowRoles('MANAGER'), (req, res, next) =>
+// POST /api/v1/whatsapp/triggers/daily-close - Trigger Daily Close summary to Boss (Manager, Reception)
+router.post('/triggers/daily-close', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
   whatsappController.triggerDailyClose(req, res, next)
 );
 
@@ -84,8 +89,8 @@ router.post('/triggers/client-welcome', allowRoles('MANAGER', 'RECEPTION'), (req
   whatsappController.triggerClientWelcome(req, res, next)
 );
 
-// POST /api/v1/whatsapp/triggers/send - Dispatch single custom message with idempotency (Manager, Reception)
-router.post('/triggers/send', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+// POST /api/v1/whatsapp/triggers/send - Dispatch single custom message with idempotency (Manager, Reception, Technician)
+router.post('/triggers/send', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN'), (req, res, next) =>
   whatsappController.sendCustom(req, res, next)
 );
 
@@ -122,6 +127,28 @@ router.get('/settings/boss-phone', allowRoles('MANAGER', 'RECEPTION'), (req, res
 // POST /api/v1/whatsapp/settings/boss-phone - Update configured Boss WhatsApp phone (Manager only)
 router.post('/settings/boss-phone', allowRoles('MANAGER'), (req, res, next) =>
   whatsappController.updateBossPhone(req, res, next)
+);
+
+// ─── HOLIDAY & OCCASION GREETINGS AUTOMATION ───
+
+// GET /api/v1/whatsapp/holidays - List all 24 fixed & variable holidays (Manager, Reception)
+router.get('/holidays', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+  whatsappController.getHolidays(req, res, next)
+);
+
+// PATCH /api/v1/whatsapp/holidays/:id - Update holiday settings or variable date (Manager only)
+router.patch('/holidays/:id', allowRoles('MANAGER'), (req, res, next) =>
+  whatsappController.updateHoliday(req, res, next)
+);
+
+// POST /api/v1/whatsapp/holidays/:id/test-send - Send test greeting for a holiday (Manager, Reception)
+router.post('/holidays/:id/test-send', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+  whatsappController.testSendHoliday(req, res, next)
+);
+
+// POST /api/v1/whatsapp/holidays/trigger-today - Manually trigger today's holiday greeting check (Manager only)
+router.post('/holidays/trigger-today', allowRoles('MANAGER'), (req, res, next) =>
+  whatsappController.triggerTodayHolidays(req, res, next)
 );
 
 export default router;

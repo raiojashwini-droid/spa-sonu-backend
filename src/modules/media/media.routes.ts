@@ -60,15 +60,15 @@ router.post(
 // Cleaning proof upload (supports 1 to 10 camera photos)
 router.post(
   '/upload/cleaning',
-  allowRoles('MANAGER', 'CLEANER'),
+  allowRoles('MANAGER', 'CLEANER', 'RECEPTION', 'TECHNICIAN'),
   handleCleaningUpload,
   (req, res, next) => mediaController.uploadCleaningPhoto(req, res, next)
 );
 
-// Get persistent cleaning records (role-secured: cleaners see own, managers see all)
+// Get persistent cleaning records (role-secured: cleaners/techs see own, managers/reception see all)
 router.get(
   '/cleaning',
-  allowRoles('MANAGER', 'RECEPTION', 'CLEANER'),
+  allowRoles('MANAGER', 'RECEPTION', 'CLEANER', 'TECHNICIAN'),
   (req, res, next) => mediaController.getCleaningRecords(req, res, next)
 );
 

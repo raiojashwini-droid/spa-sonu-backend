@@ -10,6 +10,76 @@ import {
   AuthContextUser,
 } from './clients.types';
 
+/**
+ * Safely parse a celebration date (Birthday or Anniversary).
+ * Accepts:
+ * - Full date: "1990-05-14", "1990/05/14", ISO string
+ * - Day & Month only: "05-14", "14-05", "14/05", "05/14", etc.
+ * Defaults missing year to 2000 (leap year) so MySQL DATE is valid and Feb 29 is preserved.
+ */
+export function parseCelebrationDate(val?: string | null): Date | null {
+  if (!val) return null;
+  const str = String(val).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') {
+    return null;
+  }
+
+  // 1. Full date YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (ymdMatch) {
+    const y = parseInt(ymdMatch[1], 10);
+    const m = parseInt(ymdMatch[2], 10);
+    const d = parseInt(ymdMatch[3], 10);
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return new Date(Date.UTC(y, m - 1, d));
+    }
+  }
+
+  // 2. Full date DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (dmyMatch) {
+    const d = parseInt(dmyMatch[1], 10);
+    const m = parseInt(dmyMatch[2], 10);
+    const y = parseInt(dmyMatch[3], 10);
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return new Date(Date.UTC(y, m - 1, d));
+    }
+  }
+
+  // 3. Month & Day only: "MM-DD" or "DD-MM"
+  const mdMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+  if (mdMatch) {
+    const n1 = parseInt(mdMatch[1], 10);
+    const n2 = parseInt(mdMatch[2], 10);
+    let month = 0;
+    let day = 0;
+
+    if (n1 > 12 && n2 <= 12) {
+      day = n1;
+      month = n2;
+    } else if (n2 > 12 && n1 <= 12) {
+      month = n1;
+      day = n2;
+    } else {
+      // Default standard MM-DD
+      month = n1;
+      day = n2;
+    }
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return new Date(Date.UTC(2000, month - 1, day));
+    }
+  }
+
+  // Fallback to standard Date
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  return null;
+}
+
 export class ClientsService {
   async createClient(data: CreateClientInput, authUser: AuthContextUser) {
     const trimmedPhone = data.phone.trim();
@@ -98,9 +168,9 @@ export class ClientsService {
       recommendedByPhone = data.recommendedByPhone.trim() || null;
     }
 
-    // Parse dates
-    const birthday = data.birthday ? new Date(data.birthday) : null;
-    const anniversary = data.anniversary ? new Date(data.anniversary) : null;
+    // Parse dates (supports full YYYY-MM-DD or Day-Month only)
+    const birthday = parseCelebrationDate(data.birthday);
+    const anniversary = parseCelebrationDate(data.anniversary);
 
     // 3. Create client in database
     const client = await prisma.client.create({
@@ -378,8 +448,8 @@ export class ClientsService {
       updateData.whatsapp = data.whatsapp.trim();
     }
     if (data.quartier !== undefined) updateData.quartier = data.quartier ? data.quartier.trim() : null;
-    if (data.birthday !== undefined) updateData.birthday = data.birthday ? new Date(data.birthday) : null;
-    if (data.anniversary !== undefined) updateData.anniversary = data.anniversary ? new Date(data.anniversary) : null;
+    if (data.birthday !== undefined) updateData.birthday = parseCelebrationDate(data.birthday);
+    if (data.anniversary !== undefined) updateData.anniversary = parseCelebrationDate(data.anniversary);
 
     if (data.status !== undefined) {
       const s = data.status.toUpperCase();

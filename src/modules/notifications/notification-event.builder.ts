@@ -300,8 +300,10 @@ export class NotificationEventBuilder {
 
     if (!invoice) throw new AppError('Invoice not found', HTTP_STATUS.NOT_FOUND);
 
-    if (!invoice.client) {
-      throw new AppError('Cannot send payment confirmation for invoice without client', HTTP_STATUS.BAD_REQUEST);
+    const clientName = invoice.client?.name || invoice.clientName || 'Valued Guest';
+    const phone = invoice.client?.phone || invoice.client?.whatsapp || invoice.clientPhone;
+    if (!phone) {
+      throw new AppError('Cannot send payment confirmation for invoice without recipient phone', HTTP_STATUS.BAD_REQUEST);
     }
 
     if (invoice.status !== InvoiceStatus.PAID) {
@@ -313,31 +315,60 @@ export class NotificationEventBuilder {
 
     const lastPayment = invoice.payments[0];
     const paymentMethod = lastPayment ? lastPayment.paymentMethod : 'CASH';
-    const loyaltyPoints = invoice.client.loyalty?.balance || 0;
-    const phone = invoice.client.phone || invoice.client.whatsapp;
+    const loyaltyPoints = invoice.client?.loyalty?.balance || 0;
     const idempotencyKey = `payment-confirmation:${invoice.id}`;
 
     const itemsList = invoice.items && invoice.items.length > 0
       ? invoice.items.map((it) => `• ${it.name} (${Number(it.price).toLocaleString()} FCFA)`).join('\n')
       : '• Prestations & Soins';
 
+    // Generate or fetch feedback token for this invoice payment
+    let feedbackToken: string | null = null;
+    if (invoice.appointmentId) {
+      const fb = await prisma.clientFeedback.findFirst({ where: { appointmentId: invoice.appointmentId } });
+      feedbackToken = fb?.token || null;
+    }
+    if (!feedbackToken && invoice.clientId) {
+      const fb = await prisma.clientFeedback.findFirst({
+        where: { clientId: invoice.clientId },
+        orderBy: { createdAt: 'desc' },
+      });
+      feedbackToken = fb?.token || null;
+    }
+    if (!feedbackToken) {
+      const token = `fb-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+      const fb = await prisma.clientFeedback.create({
+        data: {
+          clientId: invoice.clientId || null,
+          appointmentId: invoice.appointmentId || null,
+          token,
+          rating: 0,
+          isSubmitted: false,
+        },
+      });
+      feedbackToken = fb.token;
+    }
+    const frontendBaseUrl = process.env.FRONTEND_URL || 'https://omega-spa-pos.netlify.app';
+    const feedbackLink = `${frontendBaseUrl}/feedback?token=${feedbackToken}`;
+
     return {
       eventType: 'PAYMENT_CONFIRMATION',
       idempotencyKey,
-      clientId: invoice.client.id,
+      clientId: invoice.clientId || undefined,
       invoiceId: invoice.id,
       recipient: {
-        clientId: invoice.client.id,
-        name: invoice.client.name,
+        clientId: invoice.clientId || undefined,
+        name: clientName,
         phone: phone || undefined,
       },
       placeholders: {
-        clientName: invoice.client.name,
+        clientName,
         amount: Number(invoice.total),
         invoiceNumber: invoice.invoiceNumber,
         paymentMethod,
         loyaltyPoints,
         itemsList,
+        feedbackLink,
       },
     };
   }
@@ -354,9 +385,13 @@ export class NotificationEventBuilder {
       where: { id: clientId },
       include: {
         appointments: {
-          where: { status: 'COMPLETED' },
+          where: { status: { not: 'CANCELLED' } },
           orderBy: { appointmentDate: 'desc' },
-          take: 1,
+          take: 10,
+        },
+        invoices: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
         },
       },
     });
@@ -364,20 +399,33 @@ export class NotificationEventBuilder {
     if (!client) throw new AppError('Client not found', HTTP_STATUS.NOT_FOUND);
 
     const now = new Date();
-    const lastVisit = client.lastVisitAt || (client.appointments[0] ? client.appointments[0].appointmentDate : null);
+    const candidateTimes: number[] = [];
 
-    if (!lastVisit) {
+    if (client.lastVisitAt) {
+      candidateTimes.push(new Date(client.lastVisitAt).getTime());
+    }
+    for (const appt of (client.appointments || [])) {
+      if (appt.appointmentDate) candidateTimes.push(new Date(appt.appointmentDate).getTime());
+      if (appt.createdAt) candidateTimes.push(new Date(appt.createdAt).getTime());
+    }
+    for (const inv of (client.invoices || [])) {
+      if (inv.date) candidateTimes.push(new Date(inv.date).getTime());
+      if (inv.createdAt) candidateTimes.push(new Date(inv.createdAt).getTime());
+    }
+
+    if (candidateTimes.length === 0) {
       throw new AppError(
         `Client ${client.name} has no recorded past visits. Rebooking reminder requires at least 1 completed visit.`,
         HTTP_STATUS.BAD_REQUEST
       );
     }
 
-    const daysInactive = Math.floor((now.getTime() - new Date(lastVisit).getTime()) / (1000 * 60 * 60 * 24));
+    const mostRecentActivityTime = Math.max(...candidateTimes);
+    const daysInactive = Math.floor((now.getTime() - mostRecentActivityTime) / (1000 * 60 * 60 * 24));
 
     if (daysInactive < 30) {
       throw new AppError(
-        `Client ${client.name} is not eligible for rebooking: last visit was only ${daysInactive} days ago (minimum 30 days required).`,
+        `Client ${client.name} is not eligible for rebooking: last visit or activity was only ${Math.max(0, daysInactive)} days ago (minimum 30 days required).`,
         HTTP_STATUS.BAD_REQUEST
       );
     }
@@ -415,9 +463,21 @@ export class NotificationEventBuilder {
     const startOfDay = new Date(`${businessDate}T00:00:00.000Z`);
     const endOfDay = new Date(`${businessDate}T23:59:59.999Z`);
 
+    // 1. All payments recorded for this day
     const payments = await prisma.payment.findMany({
       where: {
         paidAt: { gte: startOfDay, lte: endOfDay },
+      },
+    });
+
+    // 2. All paid invoices on this business date
+    const paidInvoices = await prisma.invoice.findMany({
+      where: {
+        date: { gte: startOfDay, lte: endOfDay },
+        status: InvoiceStatus.PAID,
+      },
+      include: {
+        payments: true,
       },
     });
 
@@ -426,20 +486,45 @@ export class NotificationEventBuilder {
     let momoAmount = 0;
     let orangeAmount = 0;
 
+    const countedInvoiceIds = new Set<string>();
+
     for (const p of payments) {
       const amt = Number(p.amount);
       totalRevenue += amt;
       if (p.paymentMethod === 'CASH') cashAmount += amt;
       if (p.paymentMethod === 'MTN_MOMO') momoAmount += amt;
       if (p.paymentMethod === 'ORANGE_MONEY') orangeAmount += amt;
+      if (p.invoiceId) countedInvoiceIds.add(p.invoiceId);
     }
 
-    const clientsServed = await prisma.appointment.count({
+    // Failsafe: Include revenue from paid invoices that do not have a separate payment record
+    for (const inv of paidInvoices) {
+      if (!countedInvoiceIds.has(inv.id) && inv.payments.length === 0) {
+        const invTotal = Number(inv.total || 0);
+        if (invTotal > 0) {
+          totalRevenue += invTotal;
+          cashAmount += invTotal; // default to cash if no method specified
+        }
+      }
+    }
+
+    // 3. Clients served: count completed appointments + walk-in / direct paid invoices
+    const completedAppointmentsCount = await prisma.appointment.count({
       where: {
         appointmentDate: { gte: startOfDay, lte: endOfDay },
         status: AppointmentStatus.COMPLETED,
       },
     });
+
+    const walkInPaidInvoicesCount = await prisma.invoice.count({
+      where: {
+        date: { gte: startOfDay, lte: endOfDay },
+        status: InvoiceStatus.PAID,
+        appointmentId: null,
+      },
+    });
+
+    const clientsServed = completedAppointmentsCount + walkInPaidInvoicesCount;
 
     let recipientPhone: string | undefined = recipientPhoneOverride;
 

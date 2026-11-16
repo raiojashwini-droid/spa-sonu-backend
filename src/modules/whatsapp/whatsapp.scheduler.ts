@@ -16,6 +16,7 @@
 import cron, { ScheduledTask } from 'node-cron';
 import { logger } from '../../utils/logger';
 import { whatsappService } from './whatsapp.service';
+import { holidayService } from './holiday.service';
 import prisma from '../../config/database';
 
 const WHATSAPP_TIMEZONE = 'Africa/Douala';
@@ -234,6 +235,40 @@ export function initWhatsAppScheduler(): void {
       });
     },
     'PURGE_LOGS'
+  );
+
+  // 6. Daily 09:00 (Africa/Douala): Holiday & Occasion Greetings Dispatch
+  createGuardedJob(
+    'Holiday & Occasion Greetings',
+    '0 9 * * *',
+    async () => {
+      try {
+        const now = new Date();
+        const doualaStr = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Africa/Douala',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(now);
+
+        const year = parseInt(doualaStr.split('-')[0], 10);
+        const todaysHolidays = holidayService.getHolidaysForDate(doualaStr);
+
+        if (todaysHolidays.length === 0) {
+          logger.info(`[WhatsApp Scheduler] No active holidays found for today (${doualaStr})`);
+          return;
+        }
+
+        for (const h of todaysHolidays) {
+          logger.info(`[WhatsApp Scheduler] Dispatching greetings for holiday: ${h.name} (${h.code})`);
+          const dispatchRes = await holidayService.dispatchHolidayGreetings(h.code, year);
+          logger.info(`[WhatsApp Scheduler] Completed holiday dispatch for ${h.name}:`, dispatchRes);
+        }
+      } catch (err: any) {
+        logger.error('[WhatsApp Scheduler] Error during holiday greetings dispatch:', err);
+      }
+    },
+    'HOLIDAY_GREETINGS'
   );
 
   // Asynchronously load and apply any saved custom timings from the database

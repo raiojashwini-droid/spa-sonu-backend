@@ -169,6 +169,7 @@ export class WhatsAppProviderAdapter implements INotificationProvider, IWhatsApp
           errorCode,
           errorMsg,
           recipient: normalizedPhone,
+          templateName: templateData?.name || null,
         });
 
         return {
@@ -307,7 +308,7 @@ export class WhatsAppProviderAdapter implements INotificationProvider, IWhatsApp
     try {
       // 1. Upload media buffer to Meta Media API
       const formData = new FormData();
-      const blob = new Blob([params.buffer], { type: 'application/pdf' });
+      const blob = new Blob([params.buffer as any], { type: 'application/pdf' });
       formData.append('file', blob, params.filename);
       formData.append('type', 'application/pdf');
       formData.append('messaging_product', 'whatsapp');
@@ -352,14 +353,14 @@ export class WhatsAppProviderAdapter implements INotificationProvider, IWhatsApp
               },
               ...(params.template.variables && params.template.variables.length > 0
                 ? [
-                    {
-                      type: 'body',
-                      parameters: params.template.variables.map((v) => ({
-                        type: 'text',
-                        text: String(v ?? ''),
-                      })),
-                    },
-                  ]
+                  {
+                    type: 'body',
+                    parameters: params.template.variables.map((v) => ({
+                      type: 'text',
+                      text: String(v ?? ''),
+                    })),
+                  },
+                ]
                 : []),
             ],
           },
@@ -438,6 +439,10 @@ export class WhatsAppProviderAdapter implements INotificationProvider, IWhatsApp
     // Cameroon local mobile/landline numbers are 9 digits (starting with 6 or 2)
     if (cleaned.length === 9 && (cleaned.startsWith('6') || cleaned.startsWith('2'))) {
       return `237${cleaned}`;
+    }
+    // Indian mobile numbers are 10 digits (starting with 6, 7, 8, 9)
+    if (cleaned.length === 10 && /^[6-9]/.test(cleaned)) {
+      return `91${cleaned}`;
     }
     return cleaned;
   }

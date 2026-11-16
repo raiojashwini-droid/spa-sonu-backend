@@ -81,6 +81,21 @@ export class PaymentsService {
             where: { id: invoice.clientId },
             data: { lastVisitAt: new Date() },
           });
+        } else if (invoice.clientPhone) {
+          const matchedClient = await tx.client.findFirst({
+            where: {
+              OR: [
+                { phone: invoice.clientPhone },
+                { whatsapp: invoice.clientPhone },
+              ],
+            },
+          });
+          if (matchedClient) {
+            await tx.client.update({
+              where: { id: matchedClient.id },
+              data: { lastVisitAt: new Date() },
+            });
+          }
         }
       }
 
@@ -99,10 +114,10 @@ export class PaymentsService {
       return payment;
     });
 
-    // Fire WhatsApp payment confirmation (non-blocking)
-    if (isFullyPaid && invoice.clientId) {
-      whatsappService.triggerPaymentConfirmation(invoice.id).catch((err: any) => {
-        logger.warn('[Payments] WhatsApp payment confirmation trigger failed (non-blocking)', {
+    // Fire WhatsApp feedback link on payment collect (non-blocking)
+    if (isFullyPaid && (invoice.clientId || invoice.clientPhone)) {
+      whatsappService.sendInvoiceFeedback(invoice.id).catch((err: any) => {
+        logger.warn('[Payments] WhatsApp feedback link trigger failed (non-blocking)', {
           invoiceId: invoice.id,
           error: err?.message || String(err),
         });

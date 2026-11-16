@@ -71,6 +71,20 @@ export class ReportsController {
     }
   }
 
+  async getServicePerformance(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const query = dateRangeQuerySchema.parse(req.query);
+      const result = await reportsService.getServicePerformance(query);
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getTechniciansPerformance(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const query = technicianReportQuerySchema.parse(req.query);

@@ -42,6 +42,11 @@ router.get('/top-services', allowRoles('MANAGER', 'RECEPTION'), (req, res, next)
   reportsController.getTopServices(req, res, next)
 );
 
+// Service Performance Analytics (Best, Worst, Ignored 0%) (Manager & Reception only)
+router.get('/service-performance', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
+  reportsController.getServicePerformance(req, res, next)
+);
+
 // Stock Consumption Analytics (Manager & Reception only; Technician & Cleaner blocked)
 router.get('/stock-consumption', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
   reportsController.getStockConsumptionReport(req, res, next)

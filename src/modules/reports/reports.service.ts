@@ -16,6 +16,8 @@ import {
   StockConsumptionReportResponse,
   StockConsumptionItem,
   CustomerAnalyticsResponse,
+  ServicePerformanceResponse,
+  ServicePerformanceItem,
 } from './reports.types';
 import {
   AppointmentStatus,
@@ -23,6 +25,8 @@ import {
   StockActivityType,
   LoyaltyTransactionType,
   PaymentMethod,
+  InvoiceStatus,
+  InvoiceItemType,
 } from '@prisma/client';
 
 export class ReportsService {
@@ -39,12 +43,12 @@ export class ReportsService {
     if (period === 'today') {
       startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    } else if (period === 'weekly') {
+    } else if (period === 'weekly' || period === '7d') {
       startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       startDate.setHours(0, 0, 0, 0);
       endDate = new Date(now);
       endDate.setHours(23, 59, 59, 999);
-    } else if (period === 'monthly') {
+    } else if (period === 'monthly' || period === '30d') {
       startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       startDate.setHours(0, 0, 0, 0);
       endDate = new Date(now);
@@ -99,7 +103,20 @@ export class ReportsService {
         amount: true,
       },
     });
-    const totalRevenue = Number(paymentAgg._sum.amount || 0);
+    let totalRevenue = Number(paymentAgg._sum.amount || 0);
+
+    // Also include any invoices marked PAID in date range without a separate payment row
+    const orphanedPaidInvoices = await prisma.invoice.findMany({
+      where: {
+        date: { gte: startDate, lte: endDate },
+        status: InvoiceStatus.PAID,
+        payments: { none: {} },
+      },
+      select: { total: true },
+    });
+    for (const inv of orphanedPaidInvoices) {
+      totalRevenue += Number(inv.total || 0);
+    }
 
     // Total appointments in date range
     const totalAppointments = await prisma.appointment.count({
@@ -111,8 +128,8 @@ export class ReportsService {
       },
     });
 
-    // Completed services in date range
-    const completedServices = await prisma.appointmentService.count({
+    // Completed services in date range (both appointment services AND walk-in invoice services)
+    const appointmentServicesCount = await prisma.appointmentService.count({
       where: {
         status: AppointmentServiceStatus.COMPLETED,
         completedAt: {
@@ -121,6 +138,19 @@ export class ReportsService {
         },
       },
     });
+
+    const walkInInvoiceServicesCount = await prisma.invoiceItem.count({
+      where: {
+        itemType: InvoiceItemType.SERVICE,
+        appointmentServiceId: null,
+        invoice: {
+          date: { gte: startDate, lte: endDate },
+          status: InvoiceStatus.PAID,
+        },
+      },
+    });
+
+    const completedServices = appointmentServicesCount + walkInInvoiceServicesCount;
 
     // Active clients
     const activeClients = await prisma.client.count({
@@ -217,6 +247,27 @@ export class ReportsService {
       }
 
       const dateKey = p.paidAt.toISOString().split('T')[0];
+      const existing = timelineMap.get(dateKey) || { amount: 0, count: 0 };
+      existing.amount += amt;
+      existing.count += 1;
+      timelineMap.set(dateKey, existing);
+    }
+
+    // Failsafe: include paid invoices without a separate payment row
+    const orphanedPaidInvoices = await prisma.invoice.findMany({
+      where: {
+        date: { gte: startDate, lte: endDate },
+        status: InvoiceStatus.PAID,
+        payments: { none: {} },
+      },
+      select: { total: true, date: true },
+    });
+    for (const inv of orphanedPaidInvoices) {
+      const amt = Number(inv.total || 0);
+      totalRevenue += amt;
+      methodCounts.CASH.count += 1;
+      methodCounts.CASH.amount += amt;
+      const dateKey = inv.date.toISOString().split('T')[0];
       const existing = timelineMap.get(dateKey) || { amount: 0, count: 0 };
       existing.amount += amt;
       existing.count += 1;
@@ -378,6 +429,213 @@ export class ReportsService {
   }
 
   /**
+   * 4b. Service Performance Analytics Report (Best Performers, Worst Performers, Ignored 0%)
+   * Analyzes all catalog services performed in the period (default: 30 days)
+   */
+  async getServicePerformance(query: DateRangeQuery): Promise<ServicePerformanceResponse> {
+    const { startDate, endDate, period } = this.parseDateRange(query);
+
+    // 1. Fetch all active catalog services
+    const catalogServices = await prisma.service.findMany({
+      select: { id: true, name: true, category: true, price: true, status: true },
+      orderBy: { name: 'asc' },
+    });
+
+    // 2. Fetch completed invoice items in date range
+    const invoiceItems = await prisma.invoiceItem.findMany({
+      where: {
+        itemType: InvoiceItemType.SERVICE,
+        invoice: {
+          status: { in: [InvoiceStatus.PAID, InvoiceStatus.PENDING_PAYMENT] },
+          createdAt: { gte: startDate, lte: endDate },
+        },
+      },
+      select: {
+        id: true,
+        serviceId: true,
+        name: true,
+        price: true,
+        quantity: true,
+        invoice: {
+          select: {
+            clientId: true,
+          },
+        },
+      },
+    });
+
+    // 3. Fetch completed appointment services not linked to invoice items
+    const completedAppointments = await prisma.appointmentService.findMany({
+      where: {
+        status: AppointmentServiceStatus.COMPLETED,
+        completedAt: { gte: startDate, lte: endDate },
+        invoiceItem: null,
+      },
+      select: {
+        id: true,
+        serviceId: true,
+        price: true,
+        service: {
+          select: { name: true, category: true },
+        },
+        appointment: {
+          select: {
+            clientId: true,
+          },
+        },
+      },
+    });
+
+    // Aggregation maps: keyed by normalized service identifier
+    const serviceStats = new Map<string, {
+      serviceId: string;
+      serviceName: string;
+      category: string;
+      catalogPrice: number;
+      timesSold: number;
+      totalRevenue: number;
+      clientIds: Set<string>;
+    }>();
+
+    // Initialize all active catalog services with 0 sales
+    for (const s of catalogServices) {
+      const normKey = s.name.trim().toLowerCase();
+      serviceStats.set(normKey, {
+        serviceId: s.id,
+        serviceName: s.name,
+        category: s.category || 'General',
+        catalogPrice: Number(s.price) || 0,
+        timesSold: 0,
+        totalRevenue: 0,
+        clientIds: new Set<string>(),
+      });
+    }
+
+    // Helper to find or create stat bucket
+    const recordSale = (sId: string | null, sName: string, price: number, qty: number, clientId?: string | null) => {
+      const cleanName = (sName || 'Spa Service').trim();
+      const normKey = cleanName.toLowerCase();
+      let stat = serviceStats.get(normKey);
+
+      if (!stat && sId) {
+        for (const val of serviceStats.values()) {
+          if (val.serviceId === sId) {
+            stat = val;
+            break;
+          }
+        }
+      }
+
+      if (!stat) {
+        stat = {
+          serviceId: sId || normKey,
+          serviceName: cleanName,
+          category: 'General',
+          catalogPrice: price,
+          timesSold: 0,
+          totalRevenue: 0,
+          clientIds: new Set<string>(),
+        };
+        serviceStats.set(normKey, stat);
+      }
+
+      stat.timesSold += qty;
+      stat.totalRevenue += price * qty;
+      if (clientId) {
+        stat.clientIds.add(String(clientId));
+      }
+    };
+
+    // Process Invoice Items
+    for (const item of invoiceItems) {
+      const p = Number(item.price) || 0;
+      const q = Math.max(1, Number(item.quantity) || 1);
+      recordSale(item.serviceId, item.name, p, q, item.invoice?.clientId);
+    }
+
+    // Process unlinked completed appointments
+    for (const appt of completedAppointments) {
+      const p = Number(appt.price) || 0;
+      const sName = appt.service?.name || 'Spa Service';
+      recordSale(appt.serviceId, sName, p, 1, appt.appointment?.clientId);
+    }
+
+    const allCalculated = Array.from(serviceStats.values());
+    const totalServiceRevenue = allCalculated.reduce((sum, s) => sum + s.totalRevenue, 0);
+    const totalTimesSold = allCalculated.reduce((sum, s) => sum + s.timesSold, 0);
+
+    const allClientsSet = new Set<string>();
+    for (const s of allCalculated) {
+      s.clientIds.forEach((c) => allClientsSet.add(c));
+    }
+
+    // Map into ServicePerformanceItem array
+    const mappedItems: ServicePerformanceItem[] = allCalculated.map((s) => {
+      const revPct = totalServiceRevenue > 0 ? Number(((s.totalRevenue / totalServiceRevenue) * 100).toFixed(1)) : 0;
+      const avgTicket = s.timesSold > 0 ? Math.round(s.totalRevenue / s.timesSold) : s.catalogPrice;
+      return {
+        serviceId: s.serviceId,
+        serviceName: s.serviceName,
+        category: s.category,
+        price: s.catalogPrice,
+        timesSold: s.timesSold,
+        totalRevenue: Math.round(s.totalRevenue),
+        uniqueClients: s.clientIds.size,
+        averageTicket: avgTicket,
+        revenuePercentage: revPct,
+      };
+    });
+
+    // 1. Ignored - 0% (Services with strictly 0 times sold)
+    const ignoredServices = mappedItems
+      .filter((s) => s.timesSold === 0)
+      .sort((a, b) => a.serviceName.localeCompare(b.serviceName));
+
+    // 2. Performing Services (timesSold > 0)
+    const performingServices = mappedItems
+      .filter((s) => s.timesSold > 0)
+      .sort((a, b) => {
+        if (b.totalRevenue !== a.totalRevenue) return b.totalRevenue - a.totalRevenue;
+        return b.timesSold - a.timesSold;
+      });
+
+    let bestPerformers: ServicePerformanceItem[] = [];
+    let worstPerformers: ServicePerformanceItem[] = [];
+
+    if (performingServices.length <= 4) {
+      const half = Math.ceil(performingServices.length / 2);
+      bestPerformers = performingServices.slice(0, half);
+      worstPerformers = performingServices.slice(half);
+    } else {
+      const midpoint = Math.ceil(performingServices.length / 2);
+      bestPerformers = performingServices.slice(0, midpoint);
+      worstPerformers = [...performingServices.slice(midpoint)].sort((a, b) => {
+        if (a.timesSold !== b.timesSold) return a.timesSold - b.timesSold;
+        return a.totalRevenue - b.totalRevenue;
+      });
+    }
+
+    return {
+      period,
+      dateRange: {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+      },
+      kpi: {
+        totalCatalogServices: catalogServices.length,
+        performingServicesCount: performingServices.length,
+        ignoredServicesCount: ignoredServices.length,
+        totalServiceRevenue: Math.round(totalServiceRevenue),
+        totalTimesSold,
+        totalUniqueClients: allClientsSet.size,
+      },
+      bestPerformers,
+      worstPerformers,
+      ignoredServices,
+    };
+  }
+
+  /**
    * 5. Technician Performance Report
    * Strict RBAC:
    * - TECHNICIAN: forced to own ID only.
@@ -413,21 +671,39 @@ export class ReportsService {
     const performanceList: TechnicianPerformanceItem[] = [];
 
     for (const tech of technicians) {
-      // Completed services count and revenue generated
-      const completedServices = await prisma.appointmentService.findMany({
-        where: {
-          technicianId: tech.id,
-          status: AppointmentServiceStatus.COMPLETED,
-          completedAt: {
-            gte: startDate,
-            lte: endDate,
+      // Completed services from both appointments AND paid invoices
+      const [appointmentServices, invoiceServices] = await Promise.all([
+        prisma.appointmentService.findMany({
+          where: {
+            technicianId: tech.id,
+            status: AppointmentServiceStatus.COMPLETED,
+            completedAt: {
+              gte: startDate,
+              lte: endDate,
+            },
           },
-        },
-        select: { price: true },
-      });
+          select: { price: true },
+        }),
+        prisma.invoiceItem.findMany({
+          where: {
+            technicianId: tech.id,
+            itemType: InvoiceItemType.SERVICE,
+            appointmentServiceId: null,
+            invoice: {
+              date: { gte: startDate, lte: endDate },
+              status: InvoiceStatus.PAID,
+            },
+          },
+          select: { price: true, quantity: true },
+        }),
+      ]);
 
-      const servicesCompleted = completedServices.length;
-      const revenueGenerated = completedServices.reduce((acc, s) => acc + Number(s.price), 0);
+      const servicesCompleted =
+        appointmentServices.length +
+        invoiceServices.reduce((sum, it) => sum + (it.quantity || 1), 0);
+      const revenueGenerated =
+        appointmentServices.reduce((acc, s) => acc + Number(s.price), 0) +
+        invoiceServices.reduce((acc, s) => acc + Number(s.price) * (s.quantity || 1), 0);
       const averageTicket = servicesCompleted > 0 ? Math.round(revenueGenerated / servicesCompleted) : 0;
 
       let commissionEarned: number | undefined = undefined;
@@ -611,17 +887,20 @@ export class ReportsService {
     let active = 0;
 
     for (const c of allClients) {
-      // Determine last visit
-      let lastVisit = c.lastVisitAt;
-      if (!lastVisit && c.appointments.length > 0 && c.appointments[0].status === AppointmentStatus.COMPLETED) {
-        lastVisit = c.appointments[0].appointmentDate;
+      // Determine last visit across lastVisitAt and appointments
+      let lastVisitTime = c.lastVisitAt ? new Date(c.lastVisitAt).getTime() : 0;
+      if (c.appointments.length > 0 && c.appointments[0].status === AppointmentStatus.COMPLETED) {
+        const apptTime = new Date(c.appointments[0].appointmentDate).getTime();
+        if (apptTime > lastVisitTime) {
+          lastVisitTime = apptTime;
+        }
       }
 
-      if (!lastVisit) {
+      if (!lastVisitTime) {
         continue; // Client never visited
       }
 
-      const diffMs = now.getTime() - new Date(lastVisit).getTime();
+      const diffMs = now.getTime() - lastVisitTime;
       const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
       if (days >= 90) {

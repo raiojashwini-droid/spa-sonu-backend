@@ -166,6 +166,13 @@ export class ServiceCompletionService {
         currentAppointmentStatus = AppointmentStatus.COMPLETED;
         appointmentCompleted = true;
 
+        if (appointment.clientId) {
+          await tx.client.update({
+            where: { id: appointment.clientId },
+            data: { lastVisitAt: new Date() },
+          });
+        }
+
         await tx.clientHistory.create({
           data: {
             clientId: appointment.clientId,

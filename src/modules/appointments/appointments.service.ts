@@ -91,11 +91,11 @@ export class AppointmentsService {
   }
 
   async createAppointment(data: CreateAppointmentInput, authUser: AuthContextUser) {
-    // 0. Validate Operating Hours: 10:00 AM to 9:00 PM (10:00 - 21:00)
+    // 0. Validate Operating Hours: 09:00 AM to 9:00 PM (09:00 - 21:00)
     const timeMins = timeToMinutes(data.appointmentTime);
-    if (timeMins < 10 * 60 || timeMins > 21 * 60) {
+    if (timeMins < 9 * 60 || timeMins > 21 * 60) {
       throw new AppError(
-        'Appointments can only be booked between 10:00 AM and 9:00 PM (10:00 – 21:00)',
+        'Appointments can only be booked between 09:00 AM and 9:00 PM (09:00 – 21:00)',
         HTTP_STATUS.BAD_REQUEST
       );
     }
@@ -418,9 +418,9 @@ export class AppointmentsService {
     }
     if (data.appointmentTime) {
       const timeMins = timeToMinutes(data.appointmentTime);
-      if (timeMins < 10 * 60 || timeMins > 21 * 60) {
+      if (timeMins < 9 * 60 || timeMins > 21 * 60) {
         throw new AppError(
-          'Appointments can only be booked between 10:00 AM and 9:00 PM (10:00 – 21:00)',
+          'Appointments can only be booked between 09:00 AM and 9:00 PM (09:00 – 21:00)',
           HTTP_STATUS.BAD_REQUEST
         );
       }

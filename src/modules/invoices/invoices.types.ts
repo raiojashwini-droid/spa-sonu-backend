@@ -4,9 +4,18 @@ export interface CreateInvoiceInput {
   appointmentId?: string;
   clientId?: string;
   clientName?: string;
+  clientPhone?: string | null;
+  phone?: string | null;
+  date?: string | Date;
+  invoiceNumber?: string;
   discount?: number;
   status?: InvoiceStatus;
   paymentMethod?: PaymentMethod;
+  payments?: {
+    amount: number;
+    paymentMethod: PaymentMethod;
+    notes?: string;
+  }[];
   retailProducts?: {
     retailProductId: string;
     quantity: number;
@@ -33,6 +42,8 @@ export interface AddInvoiceItemInput {
 export interface UpdateInvoiceInput {
   discount?: number;
   status?: InvoiceStatus;
+  pointsRedeemed?: number;
+  pointsEarned?: number;
 }
 
 export interface InvoiceQueryFilter {

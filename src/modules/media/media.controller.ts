@@ -9,6 +9,51 @@ import { sendSuccess, sendError } from '../../utils/response';
 import { HTTP_STATUS } from '../../config/constants';
 import { AppError } from '../../middleware/errorHandler';
 
+function parseBase64ToMulterFile(raw: any, fieldName = 'images', idx = 0): Express.Multer.File | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const str = raw.trim();
+  if (str === '[object Object]' || str === 'undefined' || str === 'null' || str.length < 50) return null;
+
+  let mimeType = 'image/jpeg';
+  let base64Content = str;
+
+  if (str.startsWith('data:')) {
+    const commaIdx = str.indexOf(',');
+    if (commaIdx !== -1) {
+      const meta = str.substring(5, commaIdx);
+      const mimeMatch = meta.match(/^([^;]+)/);
+      if (mimeMatch) {
+        mimeType = mimeMatch[1];
+      }
+      base64Content = str.substring(commaIdx + 1);
+    }
+  }
+
+  base64Content = base64Content.replace(/\s/g, '');
+  if (base64Content.length < 50) return null;
+
+  try {
+    const buffer = Buffer.from(base64Content, 'base64');
+    if (buffer.length === 0) return null;
+
+    const ext = mimeType.split('/')[1] || 'jpg';
+    return {
+      buffer,
+      originalname: `${fieldName}_${Date.now()}_${idx}.${ext}`,
+      mimetype: mimeType,
+      size: buffer.length,
+      fieldname: fieldName,
+      encoding: '7bit',
+      destination: '',
+      filename: `${fieldName}_${Date.now()}_${idx}.${ext}`,
+      path: '',
+      stream: null as any,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export class MediaController {
   /**
    * POST /api/v1/media/upload/client
@@ -16,7 +61,12 @@ export class MediaController {
    */
   async uploadClientMedia(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      if (!req.file) {
+      let file = req.file;
+      if (!file) {
+        file = parseBase64ToMulterFile(req.body.base64Photo || req.body.photo || req.body.image, 'client') || undefined;
+      }
+
+      if (!file) {
         throw new AppError('No image file provided. Field name must be "image"', HTTP_STATUS.BAD_REQUEST);
       }
 
@@ -32,7 +82,7 @@ export class MediaController {
 
       const media = await mediaService.uploadClientMedia(
         clientId,
-        req.file,
+        file,
         { mediaType: validMediaType, note },
         req.user
       );
@@ -49,7 +99,12 @@ export class MediaController {
    */
   async uploadAttendancePhoto(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      if (!req.file) {
+      let file = req.file;
+      if (!file) {
+        file = parseBase64ToMulterFile(req.body.base64Photo || req.body.photo || req.body.image, 'attendance') || undefined;
+      }
+
+      if (!file) {
         throw new AppError('No image file provided. Field name must be "image"', HTTP_STATUS.BAD_REQUEST);
       }
 
@@ -63,7 +118,7 @@ export class MediaController {
 
       const result = await mediaService.uploadAttendancePhoto(
         targetEmployeeId,
-        req.file,
+        file,
         { employeeId: targetEmployeeId, type: targetType, date },
         req.user
       );
@@ -81,19 +136,83 @@ export class MediaController {
    */
   async uploadCleaningPhoto(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const filesObj = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
       let files: Express.Multer.File[] = [];
 
-      if (filesObj?.images && filesObj.images.length > 0) {
-        files = filesObj.images;
-      } else if (filesObj?.photos && filesObj.photos.length > 0) {
-        files = filesObj.photos;
-      } else if (filesObj?.image && filesObj.image.length > 0) {
-        files = filesObj.image;
+      if (Array.isArray(req.files) && req.files.length > 0) {
+        files = req.files;
+      } else if (req.files) {
+        const filesObj = req.files as { [fieldname: string]: Express.Multer.File[] };
+        if (filesObj.images && filesObj.images.length > 0) {
+          files = filesObj.images;
+        } else if (filesObj.photos && filesObj.photos.length > 0) {
+          files = filesObj.photos;
+        } else if (filesObj.image && filesObj.image.length > 0) {
+          files = filesObj.image;
+        } else {
+          for (const key of Object.keys(filesObj)) {
+            if (Array.isArray(filesObj[key])) {
+              files.push(...filesObj[key]);
+            }
+          }
+        }
       } else if (req.file) {
         files = [req.file];
       }
 
+      // 1. Filter any valid files received from multer (buffer must be > 100 bytes)
+      let validMulterFiles = files.filter((f) => f && f.buffer && f.buffer.length > 100);
+
+      // 2. If multer files are missing or empty/corrupted, check base64 strings in body
+      if (validMulterFiles.length === 0) {
+        const candidateSources = [
+          req.body.base64Images,
+          req.body.images,
+          req.body.photos,
+          req.body.image,
+          req.body.photo,
+          req.body.beforePhoto,
+          req.body.afterPhoto,
+        ];
+
+        const rawList: string[] = [];
+        for (const item of candidateSources) {
+          if (!item) continue;
+          if (Array.isArray(item)) {
+            rawList.push(...item.filter((x: any) => typeof x === 'string'));
+          } else if (typeof item === 'string') {
+            if (item.startsWith('[') && item.endsWith(']')) {
+              try {
+                const parsed = JSON.parse(item);
+                if (Array.isArray(parsed)) {
+                  rawList.push(...parsed.filter((x: any) => typeof x === 'string'));
+                } else {
+                  rawList.push(item);
+                }
+              } catch {
+                rawList.push(item);
+              }
+            } else {
+              rawList.push(item);
+            }
+          }
+        }
+
+        const base64Files: Express.Multer.File[] = [];
+        rawList.forEach((cand, idx) => {
+          const parsed = parseBase64ToMulterFile(cand, 'images', idx);
+          if (parsed && parsed.buffer && parsed.buffer.length > 100) {
+            base64Files.push(parsed);
+          }
+        });
+
+        if (base64Files.length > 0) {
+          files = base64Files;
+        } else {
+          files = [];
+        }
+      } else {
+        files = validMulterFiles;
+      }
 
       if (files.length === 0) {
         throw new AppError('No cleaning photos provided. Minimum 1 photo required', HTTP_STATUS.BAD_REQUEST);

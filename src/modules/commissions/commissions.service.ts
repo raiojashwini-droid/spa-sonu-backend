@@ -77,9 +77,14 @@ export class CommissionsService {
       const sName = item.name.toLowerCase();
 
       // Service-wise commission rate determination:
-      // Check database rule first, then standard category defaults
+      // Priority 1: Technician's individual contracted rate (staffProfile.commissionRate)
+      // Priority 2: Active category rule from CommissionRule table (ruleMap)
+      // Priority 3: Standard category defaults (Nails 15%, Facial 12%, Massage 10%, Default 10%)
+      const techProfileRate = Number(item.technician?.staffProfile?.commissionRate || 0);
       let rate = 10; // default 10%
-      if (ruleMap.has(category)) {
+      if (techProfileRate > 0) {
+        rate = techProfileRate;
+      } else if (ruleMap.has(category)) {
         rate = ruleMap.get(category)!;
       } else if (category.includes('nail') || sName.includes('nail')) {
         rate = 15; // Nails: 15%
@@ -92,13 +97,14 @@ export class CommissionsService {
       const itemTotal = Number(item.price) * item.quantity;
       const baseCommission = Math.round(((itemTotal * rate) / 100) * 100) / 100;
 
-      // Two-way Referral Commission Deduction (Section 4 & 6.2):
-      // When client is referred by staff, the referring staff's commission is deducted from technician's gross commission
+      // Two-way Referral / Marketer Commission Deduction:
+      // When client is introduced by a Marketer or Staff, the marketer's lifetime negotiated percentage
+      // is deducted from the technician who provided the service (e.g. 15% tech - 2% marketer = 13% net).
       let referralDeduction = 0;
       if (referralRecord) {
         if (referralRecord.rulePercentage > 0) {
           referralDeduction = Math.round(((itemTotal * referralRecord.rulePercentage) / 100) * 100) / 100;
-        } else if (referralRecord.fixedAmount > 0 && serviceItems.length > 0) {
+        } else if (referralRecord.fixedAmount > 0 && serviceItems.length > 0 && !referralRecord.isMarketer) {
           referralDeduction = Math.round((referralRecord.fixedAmount / serviceItems.length) * 100) / 100;
         }
         // Cap referral deduction at technician's gross commission so technician commission never drops below 0
@@ -123,7 +129,7 @@ export class CommissionsService {
           totalCommission: new Prisma.Decimal(netCommission),
           status: CommissionStatus.PENDING,
           notes: referralDeduction > 0
-            ? `Generated on payment for Invoice ${invoice.invoiceNumber} (Referral deduction: -${referralDeduction} FCFA)`
+            ? `Generated on payment for Invoice ${invoice.invoiceNumber} (${referralRecord?.isMarketer ? 'Marketer lifetime' : 'Referral'} deduction: -${referralDeduction} FCFA)`
             : `Generated on payment for Invoice ${invoice.invoiceNumber}`,
         },
       });
@@ -137,7 +143,7 @@ export class CommissionsService {
           previousTotal: new Prisma.Decimal(0),
           newTotal: new Prisma.Decimal(netCommission),
           reason: referralDeduction > 0
-            ? `Commission generated at ${rate}% for service "${item.name}" (${baseCommission} FCFA gross, -${referralDeduction} FCFA referral deduction, ${netCommission} FCFA net) upon payment of Invoice ${invoice.invoiceNumber}`
+            ? `Commission generated at ${rate}% for service "${item.name}" (${baseCommission} FCFA gross, -${referralDeduction} FCFA ${referralRecord?.isMarketer ? 'Marketer' : 'referral'} deduction, ${netCommission} FCFA net) upon payment of Invoice ${invoice.invoiceNumber}`
             : `Commission generated at ${rate}% for service "${item.name}" upon payment of Invoice ${invoice.invoiceNumber}`,
         },
       });
@@ -145,9 +151,12 @@ export class CommissionsService {
   }
 
   /**
-   * Generates EmployeeCommission for the employee who introduced the client.
+   * Generates EmployeeCommission for the employee / marketer who introduced the client.
    * - Looks up client.introducedByEmployeeId from the invoice's client.
-   * - Applies REFERRAL commission rules from CommissionRule table.
+   * - For MARKETER:
+   *   1. Flat Acquisition Fee: Awarded on the client's first paid visit/invoice.
+   *   2. Lifetime Percentage: Earned on every service visit for life, deducted from the performing technician.
+   * - For Other Staff: Standard referral commission rules.
    * - Idempotent: Skips if EmployeeCommission already exists for this invoice.
    * - The referring employee must NOT be a MANAGER (Managers cannot earn referral commissions).
    */
@@ -162,12 +171,15 @@ export class CommissionsService {
             source: true,
           },
         },
+        items: {
+          where: { itemType: InvoiceItemType.SERVICE },
+          select: { price: true, quantity: true, technicianId: true },
+        },
       },
     });
 
-    if (!invoice || !invoice.client) return;
-    if (!invoice.client.introducedByEmployeeId) return;
-    if (invoice.client.source !== 'STAFF_REFERRAL') return;
+    if (!invoice || !invoice.client) return null;
+    if (!invoice.client.introducedByEmployeeId) return null;
 
     const employeeId = invoice.client.introducedByEmployeeId;
 
@@ -177,11 +189,78 @@ export class CommissionsService {
       include: { role: true, staffProfile: true },
     });
 
-    if (!employee || !employee.isActive) return;
-    if (employee.role?.name === 'MANAGER') return;
+    if (!employee || !employee.isActive) return null;
+    if (employee.role?.name === 'MANAGER') return null;
 
-    // Staff personalized contract commissionRate takes highest precedence
+    const specs = Array.isArray(employee.staffProfile?.specialties)
+      ? (employee.staffProfile.specialties as any[])
+      : [];
+    const isMarketer =
+      employee.role?.name === 'MARKETER' ||
+      specs.some((s: any) => String(s).toLowerCase() === 'marketer');
+
+    // Only skip non-marketers if source is not staff referral
+    if (!isMarketer && invoice.client.source !== 'STAFF_REFERRAL') {
+      return null;
+    }
+
+    // Determine if this is the client's first paid invoice (First Visit)
+    const priorPaidCount = await client.invoice.count({
+      where: {
+        clientId: invoice.client.id,
+        status: InvoiceStatus.PAID,
+        id: { not: invoiceId },
+      },
+    });
+    const isFirstVisit = priorPaidCount === 0;
+
+    // Service items subtotal
+    const serviceItems = invoice.items.filter((it) => it.technicianId);
+    const serviceSubtotal = serviceItems.reduce((acc, it) => acc + Number(it.price) * (it.quantity || 1), 0);
+
+    // Look up active commission rules for fallback
+    const referralRules = await client.commissionRule.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { type: CommissionType.REFERRAL },
+          { serviceCategory: 'Marketer' },
+          { serviceCategory: 'General' },
+          { serviceCategory: 'Referral' },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const rule = referralRules[0] || null;
+
+    // 1. Negotiated Lifetime Percentage:
+    // Marketer's contract commissionRate takes highest precedence
     const contractRate = Number(employee.staffProfile?.commissionRate || 0);
+    const rulePercentage = contractRate > 0 ? contractRate : Number(rule?.percentage || (isMarketer ? 2 : 5));
+
+    // 2. Flat Client Acquisition Fee (Bounty):
+    // For Marketers, awarded on the first paid visit per newly acquired client
+    let flatAcquisitionFee = 0;
+    if (isMarketer && isFirstVisit) {
+      if (Number(employee.staffProfile?.fixedSalary || 0) > 0) {
+        flatAcquisitionFee = Number(employee.staffProfile?.fixedSalary);
+      } else if (Number(employee.staffProfile?.basePay || 0) > 0) {
+        flatAcquisitionFee = Number(employee.staffProfile?.basePay);
+      } else if (rule?.fixedAmount && Number(rule.fixedAmount) > 0) {
+        flatAcquisitionFee = Number(rule.fixedAmount);
+      } else {
+        flatAcquisitionFee = 1000; // Default 1,000 FCFA acquisition bounty per new client
+      }
+    } else if (!isMarketer && isFirstVisit && rule?.fixedAmount) {
+      flatAcquisitionFee = Number(rule.fixedAmount);
+    }
+
+    // 3. Calculate Commission Payout for this Invoice:
+    // Lifetime Percentage on services + (Flat acquisition fee if first visit)
+    const percentageCommission = Math.round(((serviceSubtotal * rulePercentage) / 100) * 100) / 100;
+    const totalCommission = flatAcquisitionFee + percentageCommission;
+
+    if (totalCommission <= 0 && rulePercentage <= 0) return null;
 
     // Idempotency: Check if EmployeeCommission already exists for this invoice + employee
     const existingEmployeeComm = await client.employeeCommission.findFirst({
@@ -190,42 +269,14 @@ export class CommissionsService {
     });
 
     if (existingEmployeeComm) {
-      const activeRate = contractRate > 0 ? contractRate : Number(existingEmployeeComm.commissionRule?.percentage || 0);
       return {
         id: existingEmployeeComm.id,
-        rulePercentage: activeRate,
-        fixedAmount: Number(existingEmployeeComm.commissionRule?.fixedAmount || 0),
+        rulePercentage,
+        fixedAmount: flatAcquisitionFee,
+        isMarketer,
+        isFirstVisit,
       };
     }
-
-    // Look up active REFERRAL or General commission rule fallback
-    const referralRules = await client.commissionRule.findMany({
-      where: {
-        isActive: true,
-        OR: [
-          { type: CommissionType.REFERRAL },
-          { serviceCategory: 'General' },
-          { serviceCategory: 'Referral' },
-        ],
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-
-    const rule = referralRules[0] || null;
-    const invoiceTotal = Number(invoice.total);
-
-    // Calculate referral commission: prioritize employee contract rate over generic rule
-    let rulePercentage = contractRate > 0 ? contractRate : Number(rule?.percentage || 0);
-    let fixedAmount = rule?.fixedAmount ? Number(rule.fixedAmount) : 0;
-
-    let commissionAmount = 0;
-    if (fixedAmount > 0 && contractRate <= 0) {
-      commissionAmount = fixedAmount;
-    } else if (rulePercentage > 0) {
-      commissionAmount = Math.round(((invoiceTotal * rulePercentage) / 100) * 100) / 100;
-    }
-
-    if (commissionAmount <= 0) return null;
 
     // Create EmployeeCommission record
     const createdComm = await client.employeeCommission.create({
@@ -233,7 +284,7 @@ export class CommissionsService {
         employeeId,
         invoiceId,
         commissionRuleId: rule ? rule.id : null,
-        amount: new Prisma.Decimal(commissionAmount),
+        amount: new Prisma.Decimal(totalCommission),
         status: CommissionStatus.PENDING,
       },
     });
@@ -241,7 +292,9 @@ export class CommissionsService {
     return {
       id: createdComm.id,
       rulePercentage,
-      fixedAmount,
+      fixedAmount: flatAcquisitionFee,
+      isMarketer,
+      isFirstVisit,
     };
   }
 
@@ -256,9 +309,11 @@ export class CommissionsService {
 
     const where: Prisma.TechnicianCommissionWhereInput = {};
 
-    // RBAC: Technician can ONLY view their own commissions
+    // RBAC: Technician can ONLY view their own commissions; Marketer views commissions linked to their referrals
     if (authUser.role === 'TECHNICIAN') {
       where.technicianId = authUser.id;
+    } else if (authUser.role === 'MARKETER') {
+      where.employeeCommission = { employeeId: authUser.id };
     } else if (query.technicianId) {
       where.technicianId = query.technicianId;
     }
@@ -989,6 +1044,139 @@ export class CommissionsService {
     });
 
     return record;
+  }
+
+  /**
+   * Authoritative Marketer Performance and Commission Ledger Report
+   * Returns:
+   * - Marketer profile and contract rates
+   * - Total introduced clients count
+   * - First-visit new clients acquired (bounties earned)
+   * - Repeat visits and lifetime percentage commissions
+   * - Detailed list of introduced clients and their visits
+   */
+  async getMarketerPerformance(marketerId: string, authUser: AuthContextUser) {
+    // Non-managers can only query their own marketer performance
+    const targetId = authUser.role === 'MANAGER' ? marketerId : authUser.id;
+
+    const marketer = await prisma.user.findUnique({
+      where: { id: targetId },
+      include: { role: true, staffProfile: true },
+    });
+
+    if (!marketer) {
+      throw new AppError('Marketer not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const [introducedClients, employeeCommissions] = await Promise.all([
+      prisma.client.findMany({
+        where: { introducedByEmployeeId: targetId },
+        include: {
+          appointments: {
+            where: { status: 'COMPLETED' },
+            select: { id: true, appointmentDate: true },
+          },
+          invoices: {
+            where: { status: InvoiceStatus.PAID },
+            select: { id: true, invoiceNumber: true, total: true, date: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.employeeCommission.findMany({
+        where: { employeeId: targetId },
+        include: {
+          invoice: {
+            select: {
+              id: true,
+              invoiceNumber: true,
+              total: true,
+              date: true,
+              client: { select: { id: true, name: true, phone: true } },
+            },
+          },
+          technicianCommissions: {
+            select: {
+              technicianId: true,
+              technician: { select: { email: true, staffProfile: { select: { name: true } } } },
+              serviceName: true,
+              servicePrice: true,
+              referralDeduction: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const totalClientsIntroduced = introducedClients.length;
+    const clientsWithPaidVisits = introducedClients.filter((c) => c.invoices.length > 0).length;
+    const totalVisitsCount = introducedClients.reduce((acc, c) => acc + c.invoices.length, 0);
+
+    let totalCommissionEarned = 0;
+    let totalPendingCommission = 0;
+    let totalApprovedCommission = 0;
+
+    for (const ec of employeeCommissions) {
+      const amt = Number(ec.amount || 0);
+      totalCommissionEarned += amt;
+      if (ec.status === CommissionStatus.APPROVED || ec.status === CommissionStatus.PAID) {
+        totalApprovedCommission += amt;
+      } else {
+        totalPendingCommission += amt;
+      }
+    }
+
+    const negotiatedPercentage = Number(marketer.staffProfile?.commissionRate || 2);
+    const flatAcquisitionFee = Number(
+      marketer.staffProfile?.fixedSalary || marketer.staffProfile?.basePay || 1000
+    );
+
+    return {
+      marketer: {
+        id: marketer.id,
+        email: marketer.email,
+        name: marketer.staffProfile?.name || marketer.email,
+        phone: marketer.staffProfile?.phone || null,
+        contract: {
+          negotiatedPercentage,
+          flatAcquisitionFee,
+        },
+      },
+      metrics: {
+        totalClientsIntroduced,
+        clientsWithPaidVisits,
+        totalVisitsCount,
+        totalCommissionEarned,
+        totalApprovedCommission,
+        totalPendingCommission,
+      },
+      commissions: employeeCommissions.map((ec) => ({
+        id: ec.id,
+        invoiceId: ec.invoiceId,
+        invoiceNumber: ec.invoice?.invoiceNumber,
+        invoiceDate: ec.invoice?.date,
+        clientName: ec.invoice?.client?.name,
+        amount: Number(ec.amount),
+        status: ec.status,
+        createdAt: ec.createdAt,
+        technicianSplits: ec.technicianCommissions.map((tc) => ({
+          technicianName: tc.technician?.staffProfile?.name || tc.technician?.email,
+          serviceName: tc.serviceName,
+          servicePrice: Number(tc.servicePrice),
+          deductionFromTech: Number(tc.referralDeduction),
+        })),
+      })),
+      clients: introducedClients.map((c) => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        totalVisits: c.invoices.length,
+        totalSpent: c.invoices.reduce((sum, inv) => sum + Number(inv.total), 0),
+        firstVisitDate: c.invoices[c.invoices.length - 1]?.date || null,
+        lastVisitDate: c.invoices[0]?.date || null,
+      })),
+    };
   }
 }
 

@@ -390,6 +390,8 @@ model Invoice {
   appointment           Appointment?           @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   clientId              String?
   client                Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientName            String?
+  clientPhone           String?
   invoiceNumber         String                 @unique
   date                  DateTime               @db.Date
   status                InvoiceStatus          @default(DRAFT)

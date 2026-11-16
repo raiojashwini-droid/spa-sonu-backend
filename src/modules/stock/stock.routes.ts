@@ -17,18 +17,18 @@ router.get('/retail', allowRoles('MANAGER', 'RECEPTION', 'TECHNICIAN', 'MARKETER
   stockController.getRetailStock(req, res, next)
 );
 
-// POST /api/v1/stock/retail — Manager create retail product
-router.post('/retail', allowRoles('MANAGER'), (req, res, next) =>
+// POST /api/v1/stock/retail — Manager & Reception create retail product
+router.post('/retail', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
   stockController.createRetailProduct(req, res, next)
 );
 
-// PATCH /api/v1/stock/retail/:id — Manager update retail product (price, stock, active status)
-router.patch('/retail/:id', allowRoles('MANAGER'), (req, res, next) =>
+// PATCH /api/v1/stock/retail/:id — Manager & Reception update retail product (price, stock, active status)
+router.patch('/retail/:id', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
   stockController.updateRetailProduct(req, res, next)
 );
 
-// POST /api/v1/stock/retail/:id/refill — Manager refill retail product
-router.post('/retail/:id/refill', allowRoles('MANAGER'), (req, res, next) =>
+// POST /api/v1/stock/retail/:id/refill — Manager & Reception refill retail product
+router.post('/retail/:id/refill', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
   stockController.refillRetailProduct(req, res, next)
 );
 
@@ -89,8 +89,8 @@ router.patch('/:id', allowRoles('MANAGER'), (req, res, next) =>
   stockController.updateStock(req, res, next)
 );
 
-// DELETE /api/v1/stock/retail/:id — Manager deletes retail product
-router.delete('/retail/:id', allowRoles('MANAGER'), (req, res, next) =>
+// DELETE /api/v1/stock/retail/:id — Manager & Reception delete retail product
+router.delete('/retail/:id', allowRoles('MANAGER', 'RECEPTION'), (req, res, next) =>
   stockController.deleteRetailProduct(req, res, next)
 );
 

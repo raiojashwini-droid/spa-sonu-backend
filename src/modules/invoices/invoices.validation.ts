@@ -4,14 +4,18 @@ import { InvoiceStatus, InvoiceItemType } from '@prisma/client';
 export const createInvoiceSchema = z.preprocess(
   (val: any) => {
     if (val && typeof val === 'object') {
-      if (val.appointmentId && typeof val.appointmentId === 'object') {
-        const nested = val.appointmentId;
-        return {
-          ...nested,
-          ...val,
-          appointmentId: nested.appointmentId || nested.id || String(nested),
-        };
+      const sanitized = { ...val };
+      if (sanitized.appointmentId && typeof sanitized.appointmentId === 'object') {
+        const nested = sanitized.appointmentId;
+        sanitized.appointmentId = nested.appointmentId || nested.id || String(nested);
       }
+      if (sanitized.clientId && typeof sanitized.clientId === 'string') {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sanitized.clientId);
+        if (!isUuid) {
+          sanitized.clientId = null;
+        }
+      }
+      return sanitized;
     }
     return val;
   },
@@ -20,9 +24,22 @@ export const createInvoiceSchema = z.preprocess(
       appointmentId: z.string().uuid('Invalid appointmentId UUID').optional().nullable(),
       clientId: z.string().uuid('Invalid clientId UUID').optional().nullable(),
       clientName: z.string().optional().nullable(),
+      clientPhone: z.string().optional().nullable(),
+      phone: z.string().optional().nullable(),
+      date: z.union([z.string(), z.date()]).optional().nullable(),
+      invoiceNumber: z.string().optional().nullable(),
       discount: z.number().nonnegative('Discount cannot be negative').optional().default(0),
       status: z.enum([InvoiceStatus.DRAFT, InvoiceStatus.PENDING_PAYMENT, InvoiceStatus.PAID]).optional().default(InvoiceStatus.PENDING_PAYMENT),
       paymentMethod: z.enum(['CASH', 'MTN_MOMO', 'ORANGE_MONEY']).optional(),
+      payments: z
+        .array(
+          z.object({
+            amount: z.number().positive('Payment amount must be greater than 0'),
+            paymentMethod: z.enum(['CASH', 'MTN_MOMO', 'ORANGE_MONEY']),
+            notes: z.string().optional().nullable(),
+          })
+        )
+        .optional(),
       retailProducts: z
         .array(
           z.object({
@@ -69,6 +86,8 @@ export const addInvoiceItemSchema = z.object({
 export const updateInvoiceSchema = z.object({
   discount: z.number().nonnegative('Discount cannot be negative').optional(),
   status: z.enum([InvoiceStatus.DRAFT, InvoiceStatus.PENDING_PAYMENT]).optional(),
+  pointsRedeemed: z.number().int().nonnegative().optional(),
+  pointsEarned: z.number().int().nonnegative().optional(),
 });
 
 export const invoiceQuerySchema = z.object({

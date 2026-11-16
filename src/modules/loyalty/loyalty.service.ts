@@ -505,16 +505,16 @@ export class LoyaltyService {
     });
 
     const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentDay = now.getDate();
+    const currentMonth = now.getUTCMonth();
+    const currentDay = now.getUTCDate();
 
     const celebrations: any[] = [];
 
     for (const c of clients) {
       if (c.birthday) {
         const bDate = new Date(c.birthday);
-        const bMonth = bDate.getMonth();
-        const bDay = bDate.getDate();
+        const bMonth = bDate.getUTCMonth();
+        const bDay = bDate.getUTCDate();
 
         // Check if celebration falls in the same month or within daysAhead
         if (bMonth === currentMonth) {
@@ -533,8 +533,8 @@ export class LoyaltyService {
 
       if (c.anniversary) {
         const aDate = new Date(c.anniversary);
-        const aMonth = aDate.getMonth();
-        const aDay = aDate.getDate();
+        const aMonth = aDate.getUTCMonth();
+        const aDay = aDate.getUTCDate();
 
         if (aMonth === currentMonth) {
           celebrations.push({
@@ -582,38 +582,55 @@ export class LoyaltyService {
             },
           },
         },
+        invoices: {
+          where: { status: 'PAID' },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        },
       },
     });
 
     const rebookingList: any[] = [];
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
     for (const c of clients) {
-      // Check if client has any upcoming appointment
+      // Check if client has any upcoming or active appointment today/future
       const hasUpcoming = c.appointments.some(
-        (a) => a.status === AppointmentStatus.SCHEDULED || a.status === AppointmentStatus.IN_PROGRESS
+        (a) =>
+          (a.status === AppointmentStatus.SCHEDULED || a.status === AppointmentStatus.IN_PROGRESS) &&
+          new Date(a.appointmentDate).getTime() >= startOfToday.getTime()
       );
 
       if (hasUpcoming) {
         continue; // Client already booked
       }
 
-      // Determine last visit date
-      let lastVisit = c.lastVisitAt;
+      // Determine most recent visit date across lastVisitAt, completed appointments, and invoices
+      const candidateTimes: number[] = [];
       let lastServiceSummary = '';
+
+      if (c.lastVisitAt) {
+        candidateTimes.push(new Date(c.lastVisitAt).getTime());
+      }
 
       const completedAppt = c.appointments.find((a) => a.status === AppointmentStatus.COMPLETED);
       if (completedAppt) {
-        if (!lastVisit || completedAppt.appointmentDate > lastVisit) {
-          lastVisit = completedAppt.appointmentDate;
-        }
+        candidateTimes.push(new Date(completedAppt.appointmentDate).getTime());
         lastServiceSummary = completedAppt.serviceSummary || '';
       }
 
-      if (!lastVisit) {
+      for (const inv of (c.invoices || [])) {
+        if (inv.date) candidateTimes.push(new Date(inv.date).getTime());
+        if (inv.createdAt) candidateTimes.push(new Date(inv.createdAt).getTime());
+      }
+
+      if (candidateTimes.length === 0) {
         continue; // New client with no past visit
       }
 
-      const diffMs = now.getTime() - new Date(lastVisit).getTime();
+      const latestTime = Math.max(...candidateTimes);
+      const diffMs = now.getTime() - latestTime;
       const daysSinceLastVisit = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
       // Rebooking status classification
@@ -644,7 +661,7 @@ export class LoyaltyService {
         phone: c.phone,
         whatsapp: c.whatsapp,
         quartier: c.quartier,
-        lastVisitDate: lastVisit,
+        lastVisitDate: new Date(latestTime),
         daysSinceLastVisit,
         status,
         lastServiceSummary,

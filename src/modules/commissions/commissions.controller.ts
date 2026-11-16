@@ -179,6 +179,21 @@ export class CommissionsController {
       next(error);
     }
   }
+
+  async getMarketerPerformance(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const marketerId = (req.params.marketerId || (req as any).user?.id) as string;
+      const authUser = (req as any).user as AuthContextUser;
+      const result = await commissionsService.getMarketerPerformance(marketerId, authUser);
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const commissionsController = new CommissionsController();

@@ -423,8 +423,8 @@ export class MediaService {
   ) {
     let effectiveCleanerId = cleanerId;
 
-    // Enforce role isolation: CLEANER can only view their own submissions
-    if (authUser?.role === 'CLEANER') {
+    // Enforce role isolation: CLEANER and TECHNICIAN can only view their own submissions
+    if (authUser?.role === 'CLEANER' || authUser?.role === 'TECHNICIAN') {
       effectiveCleanerId = authUser.id;
     }
 
